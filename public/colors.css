@@ -1,0 +1,26 @@
+/* A 股惯例：红涨绿跌。非行情状态仍使用界面强调色。 */
+:root {
+  --up: #ff817a;
+  --down: #6fe0a7;
+}
+
+.up {
+  background: rgba(255, 129, 122, 0.09);
+}
+
+.down {
+  background: rgba(111, 224, 167, 0.09);
+}
+
+.previous-close {
+  stroke: rgba(220, 229, 227, 0.32);
+  stroke-width: 0.8;
+  stroke-dasharray: 2 4;
+  vector-effect: non-scaling-stroke;
+}
+
+.previous-close-key {
+  color: var(--muted);
+  font: 500 9px/1.4 ui-monospace, SFMono-Regular, monospace;
+  white-space: nowrap;
+}

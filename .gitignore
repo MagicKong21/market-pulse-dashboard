@@ -1,0 +1,14 @@
+.cache/
+runtime/
+dist/
+node_modules/
+
+.DS_Store
+**/.DS_Store
+.claude/
+参考资料/
+
+.env
+.env.*
+!.env.example
+*.log

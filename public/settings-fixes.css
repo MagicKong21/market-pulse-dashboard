@@ -1,0 +1,9 @@
+.layout-preview {
+  grid-template-columns: repeat(var(--preview-columns, 5), minmax(78px, 1fr));
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+.layout-slot { padding: 8px 7px; gap: 3px; }
+.layout-slot-name { font-size: 10px; }
+.layout-slot-name small { font-size: 8px; margin-left: 2px; }
+.remove-slot { width: 18px; height: 18px; padding: 0; font-size: 13px; }

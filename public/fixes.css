@@ -1,0 +1,19 @@
+.pagination[hidden] { display: none; }
+.market-cap { display:flex; justify-content:space-between; gap:8px; margin-top:5px; color:var(--muted); font:500 9px/1.3 ui-monospace,SFMono-Regular,monospace; }
+.market-cap strong { color:#aab7b4; font-weight:650; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.market-cap + .chart { margin-top:6px; }
+.card-market-cap { flex:0 0 auto; display:grid; justify-items:end; gap:3px; max-width:48%; color:var(--muted); font:500 8px/1.1 ui-monospace,SFMono-Regular,monospace; }
+.card-market-cap strong { color:#aab7b4; font-size:9px; font-weight:650; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100%; }
+.provisional-point { color:var(--amber); font-weight:700; letter-spacing:.02em; }
+.synthetic-point { color:var(--lime); font-weight:700; letter-spacing:.02em; cursor:help; }
+
+@media (max-width: 760px) {
+  .masthead { padding: 6px 12px; gap: 5px; }
+  .masthead .eyebrow { display: none; }
+  .masthead h1 { font-size: 18px; }
+  .grid { grid-template-columns: repeat(var(--mobile-columns, 2), minmax(0, 1fr)); }
+}
+
+@media (max-width: 440px) {
+  .grid { grid-template-columns: 1fr; }
+}

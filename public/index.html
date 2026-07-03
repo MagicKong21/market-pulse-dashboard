@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>关注全球科技</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/colors.css">
+  <link rel="stylesheet" href="/enhancements.css">
+  <link rel="stylesheet" href="/fixes.css">
+  <link rel="stylesheet" href="/settings-v2.css">
+  <link rel="stylesheet" href="/settings-fixes.css">
+  <link rel="stylesheet" href="/design-refresh.css">
+  <link rel="stylesheet" href="/toolbar-and-layout.css">
+</head>
+<body>
+  <header class="masthead">
+    <div class="brand-block">
+      <div class="eyebrow">MARKET PULSE · <span id="watchCount">15</span></div>
+      <div class="brand-heading">
+        <h1>关注全球科技</h1>
+        <div class="brand-meta">
+          <span>互联网 · 半导体 · AI 行情看板</span>
+          <span>软件版本：<span id="appVersion">0.0.1</span></span>
+          <span>公众号：MagicKong</span>
+        </div>
+      </div>
+    </div>
+    <div class="toolbar">
+      <div class="periods universe-switch" role="group" aria-label="切换看板">
+        <span class="switch-kind" aria-hidden="true">看板</span>
+        <button type="button" data-universe="global">海外</button>
+        <button type="button" data-universe="china" class="active" aria-pressed="true">国内</button>
+        <button type="button" data-universe="market">大盘</button>
+      </div>
+      <div class="periods time-switch" role="group" aria-label="走势周期">
+        <span class="switch-kind" aria-hidden="true">周期</span>
+        <button type="button" data-period="1d" class="active" aria-pressed="true">当日</button>
+        <button type="button" data-period="5d">近五日</button>
+        <button type="button" data-period="1mo">近一月</button>
+        <button type="button" data-period="6mo">近半年</button>
+        <button type="button" data-period="1y">近一年</button>
+        <button type="button" data-period="3y">近三年</button>
+      </div>
+      <button type="button" id="settingsButton" class="header-action" aria-label="设置" title="设置"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.09a2 2 0 0 1 1 1.74v.5a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z"/><circle cx="12" cy="12" r="3"/></svg></button>
+      <button type="button" id="refresh" class="refresh" aria-label="刷新行情" title="刷新行情"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36L21 8"/><path d="M21 3v5h-5"/></svg></button>
+    </div>
+    <script>
+      (()=>{
+        let universe="china",period="1d";
+        try{const saved=JSON.parse(localStorage.getItem("market-pulse-settings-v3"));if(["global","china","market"].includes(saved?.activeUniverse))universe=saved.activeUniverse;if(["1d","5d","1mo","6mo","1y","3y"].includes(saved?.activePeriod))period=saved.activePeriod;}catch{/* 使用国内 + 当日默认值 */}
+        document.querySelectorAll("[data-universe]").forEach(button=>{const active=button.dataset.universe===universe;button.classList.toggle("active",active);button.setAttribute("aria-pressed",active);});
+        document.querySelectorAll("[data-period]").forEach(button=>{const active=button.dataset.period===period;button.classList.toggle("active",active);button.setAttribute("aria-pressed",active);});
+      })();
+    </script>
+  </header>
+
+  <aside id="updateNotice" class="update-notice" role="status" aria-labelledby="updateNoticeTitle" hidden>
+    <div class="update-notice-copy">
+      <strong id="updateNoticeTitle">发现新版本</strong>
+      <span>当前版本是：<b id="currentVersion">0.0.1</b></span>
+      <span>最新版本是：<b id="latestVersion">—</b></span>
+    </div>
+    <div class="update-notice-actions">
+      <a id="updateReleaseLink" class="update-primary" href="https://github.com/MagicKong21/market-pulse-dashboard/releases" target="_blank" rel="noopener">前往更新</a>
+      <button type="button" id="closeUpdateNotice">关闭提示</button>
+    </div>
+  </aside>
+
+  <main>
+    <section id="grid" class="grid" aria-label="股票走势"></section>
+  </main>
+
+  <footer>
+    <div class="footer-info">
+      <span id="dataSourceNote">数据源：Yahoo Finance · 腾讯证券</span>
+      <span id="marketCapSortNote">按折合人民币总市值降序；所有时间统一为北京时间；所有周期压缩休市时段</span>
+    </div>
+    <div class="footer-status" aria-live="polite">
+      <span id="status"><i class="pulse"></i> 正在连接行情…</span>
+      <span id="timestamp">—</span>
+    </div>
+  </footer>
+
+  <dialog id="settingsDialog" aria-labelledby="settingsTitle">
+    <div class="dialog-head">
+      <div><div class="eyebrow">MARKET PULSE · SETTINGS</div><h2 id="settingsTitle">看板设置</h2></div>
+      <button type="button" id="closeSettings" class="icon-button" aria-label="关闭">×</button>
+    </div>
+    <section class="settings-section" id="layoutSection">
+      <div class="layout-toolbar">
+        <h3>看板布局</h3>
+        <div class="layout-fields">
+          <label><span>列</span><span class="custom-select" data-select="columnCount"><button type="button" class="select-trigger" aria-haspopup="listbox" aria-expanded="false"><span>6</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 9 5 5 5-5"/></svg></button><span class="select-menu" role="listbox"></span><input type="hidden" id="columnCount" value="6"></span></label>
+          <span class="multiply">×</span>
+          <label><span>行</span><span class="custom-select" data-select="rowCount"><button type="button" class="select-trigger" aria-haspopup="listbox" aria-expanded="false"><span>3</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 9 5 5 5-5"/></svg></button><span class="select-menu" role="listbox"></span><input type="hidden" id="rowCount" value="3"></span></label>
+          <small id="layoutHint">6 × 3，共 18 个位置</small>
+        </div>
+        <button type="button" id="resetWatchlist">恢复默认</button>
+      </div>
+      <p id="reorderHint" class="reorder-hint" hidden>拖动窗格即可排序；聚焦窗格后也可使用方向键移动。</p>
+      <p id="formError" class="form-error" role="alert"></p>
+    </section>
+    <section class="settings-section layout-preview-section">
+      <div id="layoutPreview" class="layout-preview" aria-label="看板位置预览"></div>
+    </section>
+    <section id="slotEditor" class="settings-section slot-editor" hidden>
+      <h3 id="slotEditorTitle">添加股票</h3>
+      <form id="stockForm" class="stock-form">
+        <label>股票代码<input id="stockSymbol" name="symbol" required maxlength="20" placeholder="例如 301308、AMD、0700.HK"></label>
+        <label>显示名称（可选）<input id="stockName" name="name" maxlength="24" placeholder="留空将自动匹配"></label>
+        <button type="submit" id="stockSubmit" class="primary-button">添加</button>
+        <button type="button" id="cancelAdd" class="secondary-button">取消</button>
+      </form>
+    </section>
+  </dialog>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
