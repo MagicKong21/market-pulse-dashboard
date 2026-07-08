@@ -14,5 +14,7 @@
     "start": "node server.mjs",
     "test": "node --test"
   },
-  "engines": { "node": ">=22" }
+  "engines": {
+    "node": ">=22"
+  }
 }
