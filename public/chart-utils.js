@@ -80,30 +80,47 @@ function sessionKey(value,timeZone,market){
 export function chartProgressValues(points,periodKey,timeZone,session,market,provisionalLatest=false){
   if(periodKey==="1d"&&session){
     const progress=points.map(([time])=>sessionProgress(time,session,market,timeZone));
-    if(progress.every(Number.isFinite))return progress;
+    if(progress.every(Number.isFinite)){
+      const first=progress[0],last=progress.at(-1);
+      if(first<=1e-9)return progress;
+      const span=(provisionalLatest?1:last)-first;
+      // 跨夜品种在周一或节假日后可能没有前一晚的夜盘。横轴从第一个真实
+      // 交易点开始，而不是为理论上却未发生的夜盘预留空白；盘中仍保留右侧空间。
+      if(span>1e-9)return progress.map(value=>Math.max(0,Math.min(1,(value-first)/span)));
+      return points.map((_,index)=>index/Math.max(1,points.length-1));
+    }
   }
   if(periodKey==="5d"){
-    const groups=[],groupByDate=new Map(),positions=[];
+    const groups=[],groupByDate=new Map();
     points.forEach(([time])=>{
       const key=sessionKey(time,timeZone,market);
       if(!groupByDate.has(key)){groupByDate.set(key,groups.length);groups.push([]);}
-      const groupIndex=groupByDate.get(key),pointIndex=groups[groupIndex].length;
-      groups[groupIndex].push(time);positions.push([groupIndex,pointIndex,time]);
+      groups[groupByDate.get(key)].push(time);
     });
-    const expectedPoints=Math.max(2,...groups.map(group=>group.length));
-    const positioned=positions.map(([groupIndex,pointIndex,time])=>{
-      const pointSession=groupIndex===groups.length-1&&session?session:marketSessionForTime(time,timeZone,market);
-      const exact=pointSession?sessionProgress(time,pointSession,market,timeZone):null,withinDay=Number.isFinite(exact)?exact:pointIndex/(expectedPoints-1);
-      return{progress:(groupIndex+withinDay)/groups.length,withinDay};
-    });
-    const first=positioned[0]?.progress??0,last=positioned.at(-1)?.progress??first;
-    // 数据源可能只给每日收盘价，或者第一天从盘中才开始有数据。
-    // 横轴仍应从“第一个有效点”开始，不应把第一个交易日的无数据时段留在图左侧。
-    if(first>1e-9&&last>first){
-      const finalWithinDay=positioned.at(-1).withinDay,rightGap=provisionalLatest?Math.max(0,(1-finalWithinDay)/groups.length):0,targetLast=1-rightGap;
-      return positioned.map(item=>(item.progress-first)/(last-first)*targetLast);
+    if(groups.every(group=>group.length===1)){
+      if(provisionalLatest&&session&&groups.length>1){
+        const latest=sessionProgress(groups.at(-1)[0],session,market,timeZone),count=groups.length;
+        return groups.map((_,index)=>index===count-1?(index+(Number.isFinite(latest)?latest:0))/count:index/Math.max(1,count-1));
+      }
+      return groups.map((_,index)=>index/Math.max(1,groups.length-1));
     }
-    return positioned.map(item=>item.progress);
+    const values=[],expectedPoints=Math.max(2,...groups.slice(0,-1).map(group=>group.length),...groups.map(group=>group.length));
+    groups.forEach((group,groupIndex)=>{
+      const pointSession=groupIndex===groups.length-1&&session?session:marketSessionForTime(group.at(-1),timeZone,market);
+      const exact=group.map(time=>pointSession?sessionProgress(time,pointSession,market,timeZone):null);
+      const hasExact=exact.every(Number.isFinite),first=hasExact?exact[0]:0,last=hasExact?exact.at(-1):1;
+      const isLiveGroup=groupIndex===groups.length-1&&provisionalLatest;
+      group.forEach((_,pointIndex)=>{
+        const fallback=isLiveGroup?pointIndex/(expectedPoints-1):pointIndex/Math.max(1,group.length-1);
+        let within=fallback;
+        if(hasExact){
+          if(isLiveGroup)within=group.length===1?exact[pointIndex]:(exact[pointIndex]-first)/Math.max(1e-9,1-first);
+          else within=(exact[pointIndex]-first)/Math.max(1e-9,last-first);
+        }
+        values.push((groupIndex+Math.max(0,Math.min(1,within)))/groups.length);
+      });
+    });
+    return values;
   }
   if(provisionalLatest&&session&&points.length>1){
     const latestProgress=sessionProgress(points.at(-1)[0],session,market,timeZone);

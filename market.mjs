@@ -69,6 +69,59 @@ function tradingSessionKey(timestamp,market,timeZone){
   return new Date(Date.UTC(year,month-1,day+1)).toISOString().slice(0,10);
 }
 
+function localTradingClock(timestamp,timeZone){
+  const parts=new Intl.DateTimeFormat("en-US",{timeZone,weekday:"short",hour:"2-digit",minute:"2-digit",hourCycle:"h23"}).formatToParts(new Date(timestamp));
+  const value=type=>parts.find(part=>part.type===type)?.value;
+  return{weekday:{Sun:0,Mon:1,Tue:2,Wed:3,Thu:4,Fri:5,Sat:6}[value("weekday")],minute:Number(value("hour"))*60+Number(value("minute"))};
+}
+
+export function isTradableIntradayTimestamp(timestamp,market,timeZone){
+  if(!Number.isFinite(timestamp))return false;
+  const{weekday,minute}=localTradingClock(timestamp,timeZone);
+  if(!Number.isFinite(weekday)||!Number.isFinite(minute))return false;
+  if(["NYB","COMEX","NYMEX"].includes(market)){
+    if(weekday===0)return minute>=18*60;
+    if(weekday>=1&&weekday<=4)return minute<=17*60||minute>=18*60;
+    if(weekday===5)return minute<=17*60;
+    return false;
+  }
+  if(market==="SGE"){
+    const day=minute>=9*60&&minute<=11*60+30||minute>=13*60+30&&minute<=15*60+30;
+    const night=minute>=20*60,afterMidnight=minute<=2*60+30;
+    return day&&weekday>=1&&weekday<=5||night&&weekday>=1&&weekday<=4||afterMidnight&&weekday>=2&&weekday<=5;
+  }
+  if(market==="SGX"){
+    const day=minute>=9*60&&minute<=16*60+35,night=minute>=17*60,afterMidnight=minute<=5*60+15;
+    return day&&weekday>=1&&weekday<=5||night&&weekday>=1&&weekday<=4||afterMidnight&&weekday>=2&&weekday<=5;
+  }
+  return true;
+}
+
+export function sanitizeIntradayPoints(rows,market,timeZone,{requirePositiveVolume=false}={}){
+  const unique=new Map();
+  for(const row of rows){
+    const time=Number(row?.[0]),value=Number(row?.[1]),volume=row?.[2]==null?null:Number(row[2]);
+    if(!Number.isFinite(time)||!Number.isFinite(value)||value<=0||requirePositiveVolume&&!(volume>0))continue;
+    if(!isTradableIntradayTimestamp(time,market,timeZone)||isDuringTradingBreak(time,market,timeZone))continue;
+    unique.set(time,[time,value,Number.isFinite(volume)?volume:null]);
+  }
+  const clean=[...unique.values()].sort((a,b)=>a[0]-b[0]),groups=[];
+  for(const row of clean){
+    const key=tradingSessionKey(row[0],market,timeZone),last=groups.at(-1);
+    if(!last||last.key!==key)groups.push({key,rows:[row]});else last.rows.push(row);
+  }
+  // 部分供应商会在节假日仅生成 1—2 根“沿用前收”的无成交心跳柱。
+  // 只删除整场会话均无成交且与上一场收盘完全相同的短会话，不碰真实盘中横盘。
+  const accepted=[];
+  for(const group of groups){
+    const previous=accepted.at(-1)?.rows.at(-1),allFlat=group.rows.every(row=>Math.abs(row[1]-group.rows[0][1])<1e-9);
+    const noVolume=group.rows.every(row=>!(row[2]>0));
+    const phantom=Boolean(previous)&&group.rows.length<=2&&allFlat&&noVolume&&Math.abs(group.rows[0][1]-previous[1])<1e-9;
+    if(!phantom)accepted.push(group);
+  }
+  return accepted.flatMap(group=>group.rows);
+}
+
 export function normalizeYahooChart(payload, instrument, periodKey, now=Date.now()) {
   const result = payload?.chart?.result?.[0];
   const error = payload?.chart?.error;
@@ -79,16 +132,16 @@ export function normalizeYahooChart(payload, instrument, periodKey, now=Date.now
   const isIntradayPeriod = PERIODS[periodKey]?.interval !== "1d";
   const timestamps = result.timestamp || [];
   const closes = result.indicators?.quote?.[0]?.close || [];
-  let points = [];
-  const seen = new Set();
+  const volumes=result.indicators?.quote?.[0]?.volume||[];
+  let rawPoints=[];
   for (let index = 0; index < Math.min(timestamps.length, closes.length); index += 1) {
     const time = Number(timestamps[index]) * 1000;
     const value = Number(closes[index]);
-    if (!Number.isFinite(time) || !Number.isFinite(value) || value <= 0 || seen.has(time) || (isIntradayPeriod && isDuringTradingBreak(time,instrument.market,exchangeTimezone))) continue;
-    seen.add(time);
-    points.push([time, value]);
+    if (!Number.isFinite(time) || !Number.isFinite(value) || value <= 0) continue;
+    rawPoints.push([time,value,volumes[index]]);
   }
-  points.sort((a, b) => a[0] - b[0]);
+  if(isIntradayPeriod)rawPoints=sanitizeIntradayPoints(rawPoints,instrument.market,exchangeTimezone);
+  let points=rawPoints.map(([time,value])=>[time,value]).sort((a,b)=>a[0]-b[0]);
   if (points.length < 2) throw new Error("有效价格点不足");
 
   const quoteTime=Number(meta.regularMarketTime)*1000,quotePrice=Number(meta.regularMarketPrice),regularSession=meta.currentTradingPeriod?.regular,regularStart=Number(regularSession?.start)*1000,regularEnd=Number(regularSession?.end)*1000;
@@ -194,12 +247,6 @@ function sgeTradingDayKey(timestamp) {
   return new Date(Date.UTC(year,month-1,day+(hour>=20?1:0))).toISOString().slice(0,10);
 }
 
-function sgeClockIsTradable(timestamp) {
-  const parts=new Intl.DateTimeFormat("en-GB",{timeZone:"Asia/Shanghai",hour:"2-digit",minute:"2-digit",hourCycle:"h23"}).formatToParts(new Date(timestamp));
-  const hour=Number(parts.find(part=>part.type==="hour")?.value),minute=Number(parts.find(part=>part.type==="minute")?.value),clock=hour*60+minute;
-  return clock>=20*60||clock<=2*60+30||(clock>=9*60&&clock<=11*60+30)||(clock>=13*60+30&&clock<=15*60+30);
-}
-
 function eastmoneyRows(payload) {
   const rows=payload?.data?.klines;
   if(!Array.isArray(rows))throw new Error("东方财富 AU9999 行情响应中没有数据");
@@ -207,11 +254,11 @@ function eastmoneyRows(payload) {
 }
 
 export function normalizeEastmoneyAuIntraday(payload,instrument,periodKey) {
-  const parsed=eastmoneyRows(payload).map(raw=>{
+  const parsed=sanitizeIntradayPoints(eastmoneyRows(payload).map(raw=>{
     const fields=String(raw).split(","),stamp=fields[0],value=Number(fields[2]),volume=Number(fields[5]);
     const [date,time]=stamp.split(" "),timestamp=asiaShanghaiTimestamp(date?.replaceAll("-",""),time?.replace(":",""));
     return[timestamp,value,volume];
-  }).filter(([time,value,volume])=>Number.isFinite(time)&&Number.isFinite(value)&&value>0&&volume>0&&sgeClockIsTradable(time)).sort((a,b)=>a[0]-b[0]);
+  }),"SGE","Asia/Shanghai",{requirePositiveVolume:true});
   if(parsed.length<3)throw new Error("东方财富 AU9999 有效分时点不足");
   const keys=parsed.map(([time])=>sgeTradingDayKey(time)),unique=[...new Set(keys)],visibleKeys=periodKey==="1d"?unique.slice(-1):unique.slice(-5),firstIndex=keys.findIndex(key=>key===visibleKeys[0]);
   const points=parsed.slice(firstIndex).filter(([time])=>visibleKeys.includes(sgeTradingDayKey(time))).map(([time,value])=>[time,value]);
@@ -230,7 +277,7 @@ export function normalizeEastmoneyAuDaily(payload,intradayPayload,instrument,per
   let provisionalLatest=false,provisionalPoint=null;
   try{
     const live=normalizeEastmoneyAuIntraday(intradayPayload,instrument,"1d"),lastDate=shanghaiDateKey(points.at(-1)[0]),liveDate=sgeTradingDayKey(live.asOf),nowKey=sgeTradingDayKey(now);
-    const localHour=Number(new Intl.DateTimeFormat("en-GB",{timeZone:"Asia/Shanghai",hour:"2-digit",hourCycle:"h23"}).format(new Date(now))),stillOpen=localHour>=20||localHour<16;
+    const stillOpen=isTradableIntradayTimestamp(now,"SGE","Asia/Shanghai");
     if(liveDate===lastDate&&liveDate===nowKey&&stillOpen){points[points.length-1]=[live.asOf,live.price];provisionalLatest=true;provisionalPoint={time:live.asOf,value:live.price,source:"东方财富 AU9999 分时合成",kind:"in_progress"};}
   }catch{/* 日线仍可独立显示 */}
   const last=points.at(-1),baseline=points[0][1];
@@ -244,15 +291,8 @@ function a50TradingDayKey(timestamp){
   const [year,month,day]=date.split("-").map(Number);return new Date(Date.UTC(year,month-1,day+1)).toISOString().slice(0,10);
 }
 
-function a50ClockIsTradable(timestamp){
-  const parts=new Intl.DateTimeFormat("en-GB",{timeZone:"Asia/Shanghai",hour:"2-digit",minute:"2-digit",hourCycle:"h23"}).formatToParts(new Date(timestamp));
-  const clock=Number(parts.find(part=>part.type==="hour")?.value)*60+Number(parts.find(part=>part.type==="minute")?.value);
-  return clock>=17*60||clock<=5*60+15||(clock>=9*60&&clock<=16*60+35);
-}
-
 export function normalizeEastmoneyA50Intraday(payload,instrument,periodKey,now=Date.now()){
-  const parsed=eastmoneyRows(payload).map(raw=>{const fields=String(raw).split(","),stamp=fields[0],value=Number(fields[2]),volume=Number(fields[5]);const [date,time]=stamp.split(" ");return[asiaShanghaiTimestamp(date?.replaceAll("-",""),time?.replace(":","")),value,volume];})
-    .filter(([time,value,volume])=>Number.isFinite(time)&&Number.isFinite(value)&&value>0&&volume>0&&a50ClockIsTradable(time)).sort((a,b)=>a[0]-b[0]);
+  const parsed=sanitizeIntradayPoints(eastmoneyRows(payload).map(raw=>{const fields=String(raw).split(","),stamp=fields[0],value=Number(fields[2]),volume=Number(fields[5]);const [date,time]=stamp.split(" ");return[asiaShanghaiTimestamp(date?.replaceAll("-",""),time?.replace(":","")),value,volume];}),"SGX","Asia/Singapore",{requirePositiveVolume:true});
   if(parsed.length<3)throw new Error("东方财富 A50 期货有效分时点不足");
   const keys=parsed.map(([time])=>a50TradingDayKey(time)),unique=[...new Set(keys)],visibleKeys=periodKey==="1d"?unique.slice(-1):unique.slice(-5),firstIndex=keys.findIndex(key=>key===visibleKeys[0]);
   const points=parsed.slice(firstIndex).filter(([time])=>visibleKeys.includes(a50TradingDayKey(time))).map(([time,value])=>[time,value]);
@@ -270,7 +310,7 @@ export function normalizeEastmoneyA50Daily(payload,intradayPayload,instrument,pe
   const points=parsed.slice(firstIndex),previousClose=parsed[firstIndex-1][1];let provisionalLatest=false,provisionalPoint=null;
   try{
     const live=normalizeEastmoneyA50Intraday(intradayPayload,instrument,"1d"),lastDate=shanghaiDateKey(points.at(-1)[0]),liveDate=a50TradingDayKey(live.asOf),nowDate=a50TradingDayKey(now);
-    if(liveDate>=lastDate&&liveDate===nowDate&&a50ClockIsTradable(now)){
+    if(liveDate>=lastDate&&liveDate===nowDate&&isTradableIntradayTimestamp(now,"SGX","Asia/Singapore")){
       if(liveDate===lastDate)points[points.length-1]=[live.asOf,live.price];else points.push([live.asOf,live.price]);
       provisionalLatest=true;provisionalPoint={time:live.asOf,value:live.price,source:"东方财富 A50 分时合成",kind:"in_progress"};
     }

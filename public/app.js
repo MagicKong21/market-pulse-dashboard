@@ -1,5 +1,6 @@
 import { chartProgressValues, chartSegmentIndexes, marketSessionForTime, rangeTimeLabel } from "./chart-utils.js";
 import { APP_VERSION, LATEST_RELEASE_API, RELEASES_URL, isNewerVersion } from "./version.js";
+import { AUTO_REFRESH_OPTIONS, autoRefreshCountdownSeconds, normalizeAutoRefreshMs } from "./auto-refresh.js";
 
 const DEFAULT_GLOBAL_STOCKS = [
   ["AAPL","苹果","NASDAQ"],["MSFT","微软","NASDAQ"],["NVDA","英伟达","NASDAQ"],["GOOGL","谷歌 A","NASDAQ"],["AMZN","亚马逊","NASDAQ"],
@@ -16,11 +17,11 @@ const DEFAULT_MARKET_STOCKS = [
   ["^KS11","KOSPI","KRX","指数"],["HSTECH.HK","恒生科技","HKEX","指数"],["000001.SS","上证指数","SSE","指数"],["399001.SZ","深证成指","SZSE","指数"],["000688.SS","科创 50","SSE","指数"],["512480.SS","中证半导体","SSE","ETF 代理"],["881121.TI","半导体（同花顺）","THS","行业指数"],["399006.SZ","创业板","SZSE","指数"],["CN00Y","富时中国 A50 期货","SGX","股指期货"],
   ["^TNX","美债 10 年期","CBOE","利率"],["DX-Y.NYB","美元指数","NYB","指数"],["GC=F","国际黄金","COMEX","期货"],["AU9999","黄金9999","SGE","现货黄金"],["CL=F","原油","NYMEX","商品"],["BTC-USD","比特币","CRYPTO","加密资产"]
 ].map(([symbol,name,market,assetType])=>({symbol,name,market,assetType}));
-const STORAGE_KEY="market-pulse-settings-v3",LEGACY_STORAGE_KEY="market-pulse-settings-v2",SETTINGS_VERSION=7,PERIOD_KEYS=["1d","5d","1mo","6mo","1y","3y"],SYMBOL_PATTERN=/^[A-Z0-9^.=\-]{1,20}$/;
+const STORAGE_KEY="market-pulse-settings-v3",LEGACY_STORAGE_KEY="market-pulse-settings-v2",SETTINGS_VERSION=9,PERIOD_KEYS=["1d","5d","1mo","6mo","1y","3y"],SYMBOL_PATTERN=/^[A-Z0-9^.=\-]{1,20}$/;
 const UPDATE_CHECK_KEY="market-pulse-update-check-v1",UPDATE_DISMISSED_KEY="market-pulse-update-dismissed-v1",UPDATE_INTERVAL=2*24*60*60*1000;
 const $=selector=>document.querySelector(selector),grid=$("#grid"),status=$("#status"),timestamp=$("#timestamp"),refresh=$("#refresh");
 const buttons=[...document.querySelectorAll("[data-period]")],universeButtons=[...document.querySelectorAll("[data-universe]")],dialog=$("#settingsDialog"),preview=$("#layoutPreview"),formError=$("#formError"),slotEditor=$("#slotEditor");
-let period="1mo",requestId=0,displayOrder=[],settingsSlots=[],pendingSlot=-1,editingSlot=-1,currentUniverse="global",preferences;
+let period="1mo",requestId=0,displayOrder=[],settingsSlots=[],pendingSlot=-1,editingSlot=-1,currentUniverse="global",preferences,autoRefreshTimer=null,autoRefreshCountdownTimer=null,autoRefreshDueAt=0,latestUpdateMeta=null;
 
 function hideUpdateNotice(latestVersion){
   const notice=$("#updateNotice");
@@ -98,11 +99,12 @@ function loadDashboardState(){
       const marketProfile=normalizeProfile(repairedMarket,DEFAULT_MARKET_STOCKS);
       const active=["global","china","market"].includes(saved.activeUniverse)?saved.activeUniverse:"china";
       const activePeriod=PERIOD_KEYS.includes(saved.activePeriod)?saved.activePeriod:"1d";
-      return{schemaVersion:SETTINGS_VERSION,activeUniverse:active,activePeriod,universes:{global:normalizeProfile(saved.universes.global,DEFAULT_GLOBAL_STOCKS,{legacyGlobal:schemaVersion<4}),china:chinaProfile,market:marketProfile}};
+      const autoRefreshMs=schemaVersion<9&&Number(saved.autoRefreshMs)===5_000?10_000:normalizeAutoRefreshMs(saved.autoRefreshMs);
+      return{schemaVersion:SETTINGS_VERSION,activeUniverse:active,activePeriod,autoRefreshMs,universes:{global:normalizeProfile(saved.universes.global,DEFAULT_GLOBAL_STOCKS,{legacyGlobal:schemaVersion<4}),china:chinaProfile,market:marketProfile}};
     }
     const legacy=JSON.parse(localStorage.getItem(LEGACY_STORAGE_KEY));
-    return{schemaVersion:SETTINGS_VERSION,activeUniverse:"china",activePeriod:"1d",universes:{global:normalizeProfile(legacy,DEFAULT_GLOBAL_STOCKS,{legacyGlobal:true}),china:normalizeProfile(null,DEFAULT_CHINA_STOCKS),market:normalizeProfile(null,DEFAULT_MARKET_STOCKS)}};
-  }catch{return{schemaVersion:SETTINGS_VERSION,activeUniverse:"china",activePeriod:"1d",universes:{global:normalizeProfile(null,DEFAULT_GLOBAL_STOCKS),china:normalizeProfile(null,DEFAULT_CHINA_STOCKS),market:normalizeProfile(null,DEFAULT_MARKET_STOCKS)}};}
+    return{schemaVersion:SETTINGS_VERSION,activeUniverse:"china",activePeriod:"1d",autoRefreshMs:10_000,universes:{global:normalizeProfile(legacy,DEFAULT_GLOBAL_STOCKS,{legacyGlobal:true}),china:normalizeProfile(null,DEFAULT_CHINA_STOCKS),market:normalizeProfile(null,DEFAULT_MARKET_STOCKS)}};
+  }catch{return{schemaVersion:SETTINGS_VERSION,activeUniverse:"china",activePeriod:"1d",autoRefreshMs:10_000,universes:{global:normalizeProfile(null,DEFAULT_GLOBAL_STOCKS),china:normalizeProfile(null,DEFAULT_CHINA_STOCKS),market:normalizeProfile(null,DEFAULT_MARKET_STOCKS)}};}
 }
 const dashboardState=loadDashboardState();currentUniverse=dashboardState.activeUniverse;period=dashboardState.activePeriod;preferences=dashboardState.universes[currentUniverse];
 const capacity=()=>preferences.columns*preferences.rows;
@@ -128,8 +130,9 @@ function updateUniverseUI(){
 
 function setCustomSelect(id,value){
   const root=document.querySelector(`[data-select="${id}"]`);if(!root)return;
-  root.querySelector("input").value=value;root.querySelector(".select-trigger span").textContent=value;
-  root.querySelectorAll("[role=option]").forEach(option=>{const selected=option.dataset.value===String(value);option.classList.toggle("selected",selected);option.setAttribute("aria-selected",selected);});
+  const selectedOption=[...root.querySelectorAll("[role=option]")].find(option=>option.dataset.value===String(value));
+  root.querySelector("input").value=value;root.querySelector(".select-trigger span").textContent=selectedOption?.textContent||value;
+  root.querySelectorAll("[role=option]").forEach(option=>{const selected=option===selectedOption;option.classList.toggle("selected",selected);option.setAttribute("aria-selected",selected);});
 }
 
 function applyLayout(){
@@ -187,7 +190,9 @@ function card(item){
   const providedSession=period==="1d"?item.session:null,latestSession=marketSessionForTime(item.asOf,timeZone,item.market,providedSession),firstSession=marketSessionForTime(item.points[0][0],timeZone,item.market,period==="1d"?item.session:null);
   const now=Date.now(),withinCurrentSession=latestSession&&now>=latestSession.start&&now<latestSession.end&&item.asOf>=latestSession.start&&item.asOf<latestSession.end;
   const inProgress=item.provisionalPoint?.kind==="in_progress"||withinCurrentSession;
-  const rangeStart=intraday?(firstSession?.start||item.points[0][0]):(firstSession?.end||item.points[0][0]);
+  // 分时横轴已压缩所有未交易区间，标签也必须从首个真实点开始，不能再显示
+  // 一个图中并不存在的理论夜盘开盘时间。
+  const rangeStart=intraday?item.points[0][0]:(firstSession?.end||item.points[0][0]);
   const rangeEnd=intraday?(latestSession?.end||item.asOf):(inProgress?item.asOf:(latestSession?.end||item.asOf));
   const progressLabel=inProgress?`<span class="provisional-point">截至 ${rangeTimeLabel(item.asOf).slice(-5)}</span>`:"";
   const chartSession=latestSession||item.session;
@@ -197,32 +202,72 @@ function showSkeletons(count){grid.innerHTML=Array.from({length:count},()=>`<art
 async function load({skeleton=true,force=false}={}){
   const id=++requestId;refresh.disabled=true;if(skeleton)showSkeletons(preferences.stocks.length);status.innerHTML=`<i class="pulse"></i> 正在更新 ${buttons.find(button=>button.dataset.period===period)?.textContent}行情…`;
   try{
-    const params=new URLSearchParams({period,symbols:preferences.stocks.map(item=>item.symbol).join(","),page:"0",pageSize:String(capacity())});if(currentUniverse==="market")params.set("sort","none");if(force)params.set("force","1");
+    const params=new URLSearchParams({period,symbols:preferences.stocks.map(item=>item.symbol).join(","),page:"0",pageSize:String(capacity())});if(currentUniverse==="market")params.set("sort","none");if(force)params.set("force","1");else if(dashboardState.autoRefreshMs)params.set("refreshMs",String(dashboardState.autoRefreshMs));
     const response=await fetch(`/api/market?${params}`,{cache:"no-store"});if(!response.ok){const body=await response.json().catch(()=>({}));throw new Error(body.error||`服务器返回 ${response.status}`);}
     const payload=await response.json();if(id!==requestId)return;const config=new Map(preferences.stocks.map(item=>[item.symbol,item]));
     let instruments=payload.instruments.map(item=>{const own=config.get(item.symbol);return{...item,name:own?.name||item.name,assetType:own?.assetType,market:item.market==="CUSTOM"?(own?.market||item.market):item.market};});
     if(currentUniverse==="market"){const order=new Map(preferences.stocks.map((item,index)=>[item.symbol,index]));instruments=instruments.sort((a,b)=>order.get(a.symbol)-order.get(b.symbol));}
     displayOrder=instruments.map(item=>item.symbol);grid.innerHTML=instruments.map(card).join("");
     const good=instruments.filter(item=>item.status==="ok").length,stale=instruments.filter(item=>item.cache==="stale").length;
-    status.innerHTML=`<i class="pulse"></i> ${good}/${instruments.length} 个标的已校验 · 共 ${preferences.stocks.length} 只${stale?` · ${stale} 个使用缓存`:""}`;timestamp.textContent=`更新 ${formatTime(payload.generatedAt)} · ${payload.durationMs}ms`;
-  }catch(error){if(id!==requestId)return;status.textContent=`更新失败：${error.message}`;grid.innerHTML=`<article class="card error"><p class="error-message">无法加载行情，请检查股票代码或本地服务后重试。</p></article>`;}finally{if(id===requestId)refresh.disabled=false;}
+    status.innerHTML=`<i class="pulse"></i> ${good}/${instruments.length} 个标的已校验 · 共 ${preferences.stocks.length} 只${stale?` · ${stale} 个使用缓存`:""}`;latestUpdateMeta={generatedAt:payload.generatedAt,durationMs:payload.durationMs};
+  }catch(error){if(id!==requestId)return;status.textContent=`更新失败：${error.message}`;grid.innerHTML=`<article class="card error"><p class="error-message">无法加载行情，请检查股票代码或本地服务后重试。</p></article>`;}finally{if(id===requestId){refresh.disabled=false;scheduleAutoRefresh();}}
 }
 
-function initializeCustomSelect(id,max){
+function scheduleAutoRefresh(){
+  clearAutoRefreshSchedule();
+  const delay=dashboardState.autoRefreshMs;if(!delay||document.hidden){renderUpdateTimestamp();return;}
+  autoRefreshDueAt=Date.now()+delay;renderUpdateTimestamp();
+  autoRefreshCountdownTimer=setInterval(renderUpdateTimestamp,250);
+  autoRefreshTimer=setTimeout(()=>{clearAutoRefreshSchedule();load({skeleton:false});},delay);
+}
+
+function clearAutoRefreshSchedule(){
+  clearTimeout(autoRefreshTimer);clearInterval(autoRefreshCountdownTimer);autoRefreshTimer=null;autoRefreshCountdownTimer=null;autoRefreshDueAt=0;
+}
+
+function renderUpdateTimestamp(){
+  if(!latestUpdateMeta)return;
+  const countdown=dashboardState.autoRefreshMs&&autoRefreshDueAt?autoRefreshCountdownSeconds(autoRefreshDueAt-Date.now()):null;
+  timestamp.innerHTML=[
+    '<span class="timestamp-label">当前</span>',
+    `<span class="timestamp-time">${formatTime(latestUpdateMeta.generatedAt)}</span>`,
+    '<span class="timestamp-separator">·</span>',
+    '<span class="timestamp-label">耗时</span>',
+    `<span class="timestamp-duration"><span class="timestamp-number">${Math.max(0,Math.round(Number(latestUpdateMeta.durationMs)||0))}</span><span class="timestamp-unit">ms</span></span>`,
+    '<span class="timestamp-separator">·</span>',
+    countdown===null?'<span class="timestamp-countdown off">自动更新已关闭</span>':`<span class="timestamp-countdown"><span class="timestamp-number">${countdown}</span><span class="timestamp-unit">&nbsp;秒后更新</span></span>`
+  ].join("");
+}
+
+function initializeCustomSelect(id,values){
   const root=document.querySelector(`[data-select="${id}"]`),trigger=root.querySelector(".select-trigger"),menu=root.querySelector(".select-menu");
-  menu.innerHTML=Array.from({length:max},(_,index)=>`<button type="button" role="option" data-value="${index+1}" aria-selected="false">${index+1}</button>`).join("");
+  const options=Array.isArray(values)?values:Array.from({length:values},(_,index)=>({value:index+1,label:String(index+1)}));
+  menu.innerHTML=options.map(option=>`<button type="button" role="option" data-value="${option.value}" aria-selected="false">${option.label}</button>`).join("");
   const close=()=>{root.classList.remove("open");trigger.setAttribute("aria-expanded","false");};
   trigger.addEventListener("click",()=>{document.querySelectorAll(".custom-select.open").forEach(item=>item!==root&&item.classList.remove("open"));const open=root.classList.toggle("open");trigger.setAttribute("aria-expanded",open);});
   menu.addEventListener("click",event=>{const option=event.target.closest("[role=option]");if(!option)return;setCustomSelect(id,option.dataset.value);close();root.querySelector("input").dispatchEvent(new Event("change",{bubbles:true}));});
   return close;
 }
-const closeColumnSelect=initializeCustomSelect("columnCount",8),closeRowSelect=initializeCustomSelect("rowCount",6);
-document.addEventListener("click",event=>{if(!event.target.closest(".custom-select")){closeColumnSelect();closeRowSelect();}});
+const closeColumnSelect=initializeCustomSelect("columnCount",8),closeRowSelect=initializeCustomSelect("rowCount",6),closeAutoRefreshSelect=initializeCustomSelect("autoRefreshMs",AUTO_REFRESH_OPTIONS);
+document.addEventListener("click",event=>{if(!event.target.closest(".custom-select")){closeColumnSelect();closeRowSelect();closeAutoRefreshSelect();}});
 persist();updateUniverseUI();applyLayout();
+setCustomSelect("autoRefreshMs",dashboardState.autoRefreshMs);
 buttons.forEach(button=>{const active=button.dataset.period===period;button.classList.toggle("active",active);button.setAttribute("aria-pressed",active);button.addEventListener("click",()=>{if(button.dataset.period===period)return;period=button.dataset.period;buttons.forEach(item=>{const selected=item===button;item.classList.toggle("active",selected);item.setAttribute("aria-pressed",selected);});persist();load();});});
 universeButtons.forEach(button=>button.addEventListener("click",()=>{if(button.dataset.universe===currentUniverse)return;currentUniverse=button.dataset.universe;preferences=dashboardState.universes[currentUniverse];displayOrder=[];settingsSlots=[];pendingSlot=-1;editingSlot=-1;updateUniverseUI();applyLayout();persist();load();}));
 refresh.addEventListener("click",()=>load({skeleton:false,force:true}));
-$("#settingsButton").addEventListener("click",()=>{prepareSettingsSlots();renderLayoutPreview();closeStockEditor();dialog.showModal();$("#columnCount").focus();});
+$("#shutdownButton").addEventListener("click",async event=>{
+  if(!window.confirm("关闭后台服务并关闭当前标签页？"))return;
+  const button=event.currentTarget;button.disabled=true;clearAutoRefreshSchedule();
+  try{
+    const response=await fetch("/api/shutdown",{method:"POST",headers:{"x-market-pulse-action":"shutdown"},cache:"no-store"});
+    if(!response.ok)throw new Error((await response.json().catch(()=>({}))).error||"后台服务未能关闭");
+    setTimeout(()=>{
+      window.close();
+      setTimeout(()=>{$("#shutdownScreen").hidden=false;},180);
+    },80);
+  }catch(error){button.disabled=false;status.textContent=`关闭失败：${error.message}`;scheduleAutoRefresh();}
+});
+$("#settingsButton").addEventListener("click",()=>{prepareSettingsSlots();renderLayoutPreview();setCustomSelect("autoRefreshMs",dashboardState.autoRefreshMs);closeStockEditor();dialog.showModal();$("#columnCount").focus();});
 $("#closeSettings").addEventListener("click",()=>{closeStockEditor();dialog.close();});
 $("#cancelAdd").addEventListener("click",closeStockEditor);
 $("#stockSymbol").addEventListener("input",event=>{event.target.value=event.target.value.toUpperCase().replace(/\s/g,"");formError.textContent="";});
@@ -264,6 +309,8 @@ function changeLayout(){
   const occupied=settingsSlots.filter(Boolean);preferences.columns=columns;preferences.rows=rows;settingsSlots=occupied.slice(0,newCapacity);while(settingsSlots.length<newCapacity)settingsSlots.push(null);persist();renderLayoutPreview();load();
 }
 $("#columnCount").addEventListener("change",changeLayout);$("#rowCount").addEventListener("change",changeLayout);
+$("#autoRefreshMs").addEventListener("change",event=>{dashboardState.autoRefreshMs=normalizeAutoRefreshMs(event.target.value);persist();setCustomSelect("autoRefreshMs",dashboardState.autoRefreshMs);scheduleAutoRefresh();});
+document.addEventListener("visibilitychange",()=>{if(document.hidden){clearAutoRefreshSchedule();renderUpdateTimestamp();}else scheduleAutoRefresh();});
 $("#resetWatchlist").addEventListener("click",()=>{const defaults=currentUniverse==="china"?DEFAULT_CHINA_STOCKS:currentUniverse==="market"?DEFAULT_MARKET_STOCKS:DEFAULT_GLOBAL_STOCKS;preferences.stocks=structuredClone(defaults);preferences.columns=6;preferences.rows=3;displayOrder=[];persist();prepareSettingsSlots();renderLayoutPreview();slotEditor.hidden=true;pendingSlot=-1;editingSlot=-1;formError.textContent="已恢复默认 6 × 3 看板";load();});
 load();
 checkForUpdates();

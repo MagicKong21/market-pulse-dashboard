@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { INSTRUMENTS, inferSymbolMarket, isPeriod, mergeLatestQuote, mergeProvisionalIntraday, mergeSyntheticDxy, normalizeEastmoneyA50Daily, normalizeEastmoneyA50Intraday, normalizeEastmoneyAuDaily, normalizeEastmoneyAuIntraday, normalizeSinaGlobalFutureLatest, normalizeSymbolInput, normalizeTencentKline, normalizeTencentMinute, normalizeThsIndustryLine, normalizeThsIndustryMinute, normalizeYahooChart, normalizeYahooQuotes, resolveInstruments, sortByMarketCapUsd } from "../market.mjs";
+import { INSTRUMENTS, inferSymbolMarket, isPeriod, isTradableIntradayTimestamp, mergeLatestQuote, mergeProvisionalIntraday, mergeSyntheticDxy, normalizeEastmoneyA50Daily, normalizeEastmoneyA50Intraday, normalizeEastmoneyAuDaily, normalizeEastmoneyAuIntraday, normalizeSinaGlobalFutureLatest, normalizeSymbolInput, normalizeTencentKline, normalizeTencentMinute, normalizeThsIndustryLine, normalizeThsIndustryMinute, normalizeYahooChart, normalizeYahooQuotes, resolveInstruments, sanitizeIntradayPoints, sortByMarketCapUsd } from "../market.mjs";
 
 const fixture = { chart: { result: [{ meta: { currency: "USD", chartPreviousClose: 90, exchangeTimezoneName: "America/New_York", currentTradingPeriod: { regular: { start: 100, end: 110 } }, tradingPeriods: [[{ start: 1, end: 10 }]] }, timestamp: [3, 1, 2, 4], indicators: { quote: [{ close: [110, 100, null, 120] }] } }] } };
 
@@ -10,6 +10,25 @@ test("15 个标的代码唯一且包含三个市场", () => {
   assert.ok(INSTRUMENTS.some(item => item.market === "KRX"));
   assert.ok(INSTRUMENTS.some(item => item.symbol === "AMD"));
   assert.ok(INSTRUMENTS.some(item => item.symbol === "INTC"));
+});
+
+test("统一交易时段清洗器剔除周末伪夜盘但保留真实横盘",()=>{
+  const at=value=>Date.parse(value),rows=[
+    [at("2026-07-03T07:30:00Z"),910,3], // 周五 15:30，日盘
+    [at("2026-07-03T12:05:00Z"),910,9], // 周五 20:05，伪夜盘
+    [at("2026-07-06T01:05:00Z"),911,2],
+    [at("2026-07-06T01:10:00Z"),911,4]  // 真实成交但价格不变
+  ];
+  const clean=sanitizeIntradayPoints(rows,"SGE","Asia/Shanghai",{requirePositiveVolume:true});
+  assert.deepEqual(clean.map(row=>row[0]),[rows[0][0],rows[2][0],rows[3][0]]);
+  assert.equal(clean.at(-1)[1],clean.at(-2)[1]);
+  assert.equal(isTradableIntradayTimestamp(rows[1][0],"SGE","Asia/Shanghai"),false);
+});
+
+test("美国期货仅接受周日至周五的真实周交易窗口",()=>{
+  assert.equal(isTradableIntradayTimestamp(Date.parse("2026-07-05T22:00:00Z"),"COMEX","America/New_York"),true);
+  assert.equal(isTradableIntradayTimestamp(Date.parse("2026-07-04T16:00:00Z"),"COMEX","America/New_York"),false);
+  assert.equal(isTradableIntradayTimestamp(Date.parse("2026-07-03T22:30:00Z"),"COMEX","America/New_York"),false);
 });
 
 test("标准化会过滤空点、排序，并用前收计算当日涨跌", () => {
@@ -120,8 +139,8 @@ test("近五日期货严格保留最后五个交易会话并去掉重复的实�
   closes.push(150,151,151);
   const payload={chart:{result:[{meta:{currency:"USD",exchangeTimezoneName:"America/New_York",chartPreviousClose:50},timestamp:timestamps,indicators:{quote:[{close:closes}]}}]}};
   const result=normalizeYahooChart(payload,{symbol:"GC=F",name:"国际黄金",market:"COMEX"},"5d");
-  assert.equal(new Date(result.points[0][0]).toISOString(),"2026-06-27T22:00:00.000Z");
-  assert.equal(result.previousClose,105);
+  assert.equal(new Date(result.points[0][0]).toISOString(),"2026-06-25T22:00:00.000Z");
+  assert.equal(result.previousClose,101);
   assert.equal(result.points.at(-1)[0],Date.parse("2026-07-02T08:00:00Z"));
   assert.equal(result.asOf,Date.parse("2026-07-02T08:13:00Z"));
 });

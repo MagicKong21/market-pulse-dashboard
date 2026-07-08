@@ -17,7 +17,14 @@ let diskCache = {};
 try { diskCache = JSON.parse(await readFile(CACHE_FILE, "utf8")); } catch { diskCache = {}; }
 
 const jsonHeaders = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" };
-const mime = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8" };
+
+export function autoRefreshMaxAge(periodKey,value,enabled=true){
+  if(!enabled||!Number.isFinite(Number(value)))return PERIODS[periodKey].ttl;
+  const minimum=["1d","5d"].includes(periodKey)?5_000:60_000;
+  return Math.min(300_000,Math.max(minimum,Number(value)));
+}
+export function isShutdownAuthorized(request){return request?.headers?.["x-market-pulse-action"]==="shutdown";}
+const mime = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".svg":"image/svg+xml" };
 
 async function fetchJson(url, timeout = 10_000, extraHeaders = {}) {
   const controller = new AbortController();
@@ -212,11 +219,11 @@ async function fetchEastmoneyA50(instrument,periodKey){
   return normalizeEastmoneyA50Daily(daily,intraday,instrument,periodKey);
 }
 
-async function fetchInstrument(instrument, periodKey, force = false) {
+async function fetchInstrument(instrument, periodKey, force = false, maxAge = PERIODS[periodKey].ttl) {
   const key = `${instrument.symbol}:${periodKey}`;
   const period = PERIODS[periodKey];
   const cached = memoryCache.get(key);
-  if (!force && cached && Date.now() - cached.savedAt < period.ttl) return { ...cached.data, cache: "fresh" };
+  if (!force && cached && Date.now() - cached.savedAt < maxAge) return { ...cached.data, cache: "fresh" };
 
   const path = `${encodeURIComponent(instrument.symbol)}?interval=${period.interval}&range=${period.range}&includePrePost=false&events=div%2Csplits`;
   const endpoints = [
@@ -316,12 +323,12 @@ async function mapConcurrent(items, limit, worker) {
   return results;
 }
 
-async function dashboard(periodKey, force = false, instruments = INSTRUMENTS, page = 0, pageSize = instruments.length, sortByCap = true) {
+async function dashboard(periodKey, force = false, instruments = INSTRUMENTS, page = 0, pageSize = instruments.length, sortByCap = true, maxAge = PERIODS[periodKey].ttl) {
   const startedAt = Date.now();
   const marketCaps = sortByCap?await fetchMarketCaps(instruments,force):new Map(instruments.map(item=>[item.symbol,{marketCap:null,marketCapCurrency:null,marketCapUsd:null,marketCapCny:null,marketCapStatus:"not_applicable"}]));
   const sorted = sortByCap?sortByMarketCapUsd(instruments,marketCaps):instruments.map(item=>({item,cap:marketCaps.get(item.symbol)}));
   const selected = sorted.slice(page * pageSize, (page + 1) * pageSize);
-  const results = await mapConcurrent(selected, 4, entry => fetchInstrument(entry.item, periodKey, force));
+  const results = await mapConcurrent(selected, 4, entry => fetchInstrument(entry.item, periodKey, force, maxAge));
   const instrumentResults = results.map((result, index) => result.ok
     ? { status: "ok", ...result.data, ...selected[index].cap }
     : { status: "error", ...selected[index].item, ...selected[index].cap, error: result.error });
@@ -352,6 +359,18 @@ async function serveStatic(pathname, response) {
 export const server = http.createServer(async (request, response) => {
   try {
     const url = new URL(request.url, "http://localhost");
+    if(request.method==="POST"&&url.pathname==="/api/shutdown"){
+      if(!isShutdownAuthorized(request)){
+        response.writeHead(403,jsonHeaders);return response.end(JSON.stringify({error:"关闭请求未获授权"}));
+      }
+      response.writeHead(200,jsonHeaders);response.end(JSON.stringify({ok:true}));
+      if(process.env.NODE_ENV!=="test"){
+        // This is a single-user local process. A deterministic exit avoids
+        // keep-alive browser sockets leaving the server half-closed.
+        setTimeout(()=>process.exit(0),250);
+      }
+      return;
+    }
     if (request.method === "GET" && url.pathname === "/api/market") {
       const period = url.searchParams.get("period") || "1mo";
       if (!isPeriod(period)) {
@@ -371,8 +390,9 @@ export const server = http.createServer(async (request, response) => {
         response.writeHead(400, jsonHeaders);
         return response.end(JSON.stringify({ error: error.message }));
       }
+      const maxAge=autoRefreshMaxAge(period,url.searchParams.get("refreshMs"),url.searchParams.has("refreshMs"));
       response.writeHead(200, jsonHeaders);
-      return response.end(JSON.stringify(await dashboard(period, force, requestedInstruments, page, pageSize, url.searchParams.get("sort")!=="none")));
+      return response.end(JSON.stringify(await dashboard(period, force, requestedInstruments, page, pageSize, url.searchParams.get("sort")!=="none",maxAge)));
     }
     if (request.method === "GET" && url.pathname === "/api/lookup") {
       try {
