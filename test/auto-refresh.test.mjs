@@ -35,3 +35,17 @@ test("设置结构先自动更新再连续展示布局与窗格",async()=>{
   assert.match(html,/互联网 · 半导体 · AI 行情看板<span id="watchCount" hidden>/);
   assert.doesNotMatch(html,/brand-meta">\s*<span>互联网/);
 });
+
+test("发布默认大盘名单不重新加入用户已删除的半导体指数",async()=>{
+  const app=await readFile(new URL("../public/app.js",import.meta.url),"utf8");
+  const defaults=app.match(/const DEFAULT_MARKET_STOCKS = \[([\s\S]*?)\n\]\.map/)?.[1]||"";
+  assert.doesNotMatch(defaults,/512480\.SS/);
+  assert.doesNotMatch(defaults,/881121\.TI/);
+  assert.match(app,/if\(schemaVersion===6\)stocks=stocks\.filter\(item=>!\["512480\.SS","881121\.TI"\]\.includes\(item\.symbol\)\)/);
+});
+
+test("在线版使用独立配置版本以展示当前默认名单",async()=>{
+  const app=await readFile(new URL("../public/app.js",import.meta.url),"utf8");
+  assert.match(app,/const IS_HOSTED_SITE=/);
+  assert.match(app,/STORAGE_KEY=IS_HOSTED_SITE\?"market-pulse-settings-hosted-v1":"market-pulse-settings-v3"/);
+});

@@ -2,6 +2,7 @@ import { chartProgressValues, chartSegmentIndexes, marketSessionForTime, rangeTi
 import { APP_VERSION, LATEST_RELEASE_API, RELEASES_URL, isNewerVersion } from "./version.js";
 import { AUTO_REFRESH_OPTIONS, autoRefreshCountdownSeconds, normalizeAutoRefreshMs } from "./auto-refresh.js";
 
+const IS_HOSTED_SITE=!(["localhost","127.0.0.1","::1"].includes(location.hostname));
 const DEFAULT_GLOBAL_STOCKS = [
   ["AAPL","苹果","NASDAQ"],["MSFT","微软","NASDAQ"],["NVDA","英伟达","NASDAQ"],["GOOGL","谷歌 A","NASDAQ"],["AMZN","亚马逊","NASDAQ"],
   ["META","Meta","NASDAQ"],["TSLA","特斯拉","NASDAQ"],["TSM","台积电 ADR","NYSE"],["MU","美光","NASDAQ"],["AVGO","博通","NASDAQ"],
@@ -14,10 +15,10 @@ const DEFAULT_CHINA_STOCKS = [
 ].map(([symbol,name,market])=>({symbol,name,market}));
 const DEFAULT_MARKET_STOCKS = [
   ["^SOX","费城半导体","NASDAQ","指数"],["^NDX","纳指 100","NASDAQ","指数"],["^GSPC","标普 500","NYSE","指数"],["^TWII","台湾加权","TWSE","指数"],["^N225","日经 225","TSE","指数"],
-  ["^KS11","KOSPI","KRX","指数"],["HSTECH.HK","恒生科技","HKEX","指数"],["000001.SS","上证指数","SSE","指数"],["399001.SZ","深证成指","SZSE","指数"],["000688.SS","科创 50","SSE","指数"],["512480.SS","中证半导体","SSE","ETF 代理"],["881121.TI","半导体（同花顺）","THS","行业指数"],["399006.SZ","创业板","SZSE","指数"],["CN00Y","富时中国 A50 期货","SGX","股指期货"],
+  ["^KS11","KOSPI","KRX","指数"],["HSTECH.HK","恒生科技","HKEX","指数"],["000001.SS","上证指数","SSE","指数"],["399001.SZ","深证成指","SZSE","指数"],["000688.SS","科创 50","SSE","指数"],["399006.SZ","创业板","SZSE","指数"],["CN00Y","富时中国 A50 期货","SGX","股指期货"],
   ["^TNX","美债 10 年期","CBOE","利率"],["DX-Y.NYB","美元指数","NYB","指数"],["GC=F","国际黄金","COMEX","期货"],["AU9999","黄金9999","SGE","现货黄金"],["CL=F","原油","NYMEX","商品"],["BTC-USD","比特币","CRYPTO","加密资产"]
 ].map(([symbol,name,market,assetType])=>({symbol,name,market,assetType}));
-const STORAGE_KEY="market-pulse-settings-v3",LEGACY_STORAGE_KEY="market-pulse-settings-v2",SETTINGS_VERSION=9,PERIOD_KEYS=["1d","5d","1mo","6mo","1y","3y"],SYMBOL_PATTERN=/^[A-Z0-9^.=\-]{1,20}$/;
+const STORAGE_KEY=IS_HOSTED_SITE?"market-pulse-settings-hosted-v1":"market-pulse-settings-v3",LEGACY_STORAGE_KEY="market-pulse-settings-v2",SETTINGS_VERSION=9,PERIOD_KEYS=["1d","5d","1mo","6mo","1y","3y"],SYMBOL_PATTERN=/^[A-Z0-9^.=\-]{1,20}$/;
 const UPDATE_CHECK_KEY="market-pulse-update-check-v1",UPDATE_DISMISSED_KEY="market-pulse-update-dismissed-v1",UPDATE_INTERVAL=2*24*60*60*1000;
 const $=selector=>document.querySelector(selector),grid=$("#grid"),status=$("#status"),timestamp=$("#timestamp"),refresh=$("#refresh");
 const buttons=[...document.querySelectorAll("[data-period]")],universeButtons=[...document.querySelectorAll("[data-universe]")],dialog=$("#settingsDialog"),preview=$("#layoutPreview"),formError=$("#formError"),slotEditor=$("#slotEditor");
@@ -255,6 +256,7 @@ setCustomSelect("autoRefreshMs",dashboardState.autoRefreshMs);
 buttons.forEach(button=>{const active=button.dataset.period===period;button.classList.toggle("active",active);button.setAttribute("aria-pressed",active);button.addEventListener("click",()=>{if(button.dataset.period===period)return;period=button.dataset.period;buttons.forEach(item=>{const selected=item===button;item.classList.toggle("active",selected);item.setAttribute("aria-pressed",selected);});persist();load();});});
 universeButtons.forEach(button=>button.addEventListener("click",()=>{if(button.dataset.universe===currentUniverse)return;currentUniverse=button.dataset.universe;preferences=dashboardState.universes[currentUniverse];displayOrder=[];settingsSlots=[];pendingSlot=-1;editingSlot=-1;updateUniverseUI();applyLayout();persist();load();}));
 refresh.addEventListener("click",()=>load({skeleton:false,force:true}));
+if(IS_HOSTED_SITE)$("#shutdownButton").hidden=true;
 $("#shutdownButton").addEventListener("click",async event=>{
   if(!window.confirm("关闭后台服务并关闭当前标签页？"))return;
   const button=event.currentTarget;button.disabled=true;clearAutoRefreshSchedule();

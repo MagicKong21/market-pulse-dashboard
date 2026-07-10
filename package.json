@@ -11,6 +11,7 @@
   "homepage": "https://github.com/MagicKong21/market-pulse-dashboard",
   "type": "module",
   "scripts": {
+    "build": "node scripts/build-sites.mjs",
     "start": "node server.mjs",
     "test": "node --test"
   },
