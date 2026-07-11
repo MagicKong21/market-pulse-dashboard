@@ -2,7 +2,7 @@ import http from "node:http";
 import { readFile, mkdir, writeFile } from "node:fs/promises";
 import { dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { INSTRUMENTS, PERIODS, isPeriod, mergeLatestQuote, mergeProvisionalIntraday, mergeSyntheticDxy, normalizeEastmoneyA50Daily, normalizeEastmoneyA50Intraday, normalizeEastmoneyAuDaily, normalizeEastmoneyAuIntraday, normalizeSinaGlobalFutureLatest, normalizeSymbolInput, normalizeTencentKline, normalizeTencentMinute, normalizeThsIndustryLine, normalizeThsIndustryMinute, normalizeYahooChart, normalizeYahooQuotes, resolveInstruments, sortByMarketCapUsd } from "./market.mjs";
+import { INSTRUMENTS, PERIODS, isPeriod, mergeLatestQuote, mergeProvisionalIntraday, mergeSyntheticDxy, normalizeEastmoneyA50Daily, normalizeEastmoneyA50Intraday, normalizeEastmoneyAuDaily, normalizeEastmoneyAuIntraday, normalizeEastmoneyTwii, normalizeSinaA50Daily, normalizeSinaA50Minute, normalizeSinaAuHistory, normalizeSinaGlobalFutureLatest, normalizeSinaUsKline, normalizeSymbolInput, normalizeTencentKline, normalizeTencentMinute, normalizeThsIndustryLine, normalizeThsIndustryMinute, normalizeTwseIndexHistory, normalizeYahooChart, normalizeYahooQuotes, resolveInstruments, sortByMarketCapUsd } from "./market.mjs";
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const PUBLIC = join(ROOT, "public");
@@ -219,6 +219,72 @@ async function fetchEastmoneyA50(instrument,periodKey){
   return normalizeEastmoneyA50Daily(daily,intraday,instrument,periodKey);
 }
 
+function fallbackDateRange(periodKey){
+  const end=new Date(),start=new Date(end);
+  if(periodKey==="1d"||periodKey==="5d")start.setUTCDate(start.getUTCDate()-14);
+  else if(periodKey==="1mo")start.setUTCMonth(start.getUTCMonth()-2);
+  else if(periodKey==="6mo")start.setUTCMonth(start.getUTCMonth()-7);
+  else if(periodKey==="1y")start.setUTCFullYear(start.getUTCFullYear()-1);
+  else start.setUTCFullYear(start.getUTCFullYear()-3);
+  const format=value=>value.toISOString().slice(0,10);
+  return{start:format(start),end:format(end)};
+}
+
+async function fetchSinaAu9999(instrument,periodKey){
+  const{start,end}=fallbackDateRange(periodKey);
+  const payload=await fetchText(`https://vip.stock.finance.sina.com.cn/q/view/download_gold_history.php?breed=AU9999&start=${start}&end=${end}`,20_000,{referer:"https://vip.stock.finance.sina.com.cn/"});
+  return normalizeSinaAuHistory(payload,instrument,periodKey);
+}
+
+async function fetchSinaA50(instrument,periodKey){
+  const base="https://stock2.finance.sina.com.cn/futures/api/jsonp.php/var%20_DATA=/GlobalFuturesService.";
+  if(periodKey==="1d"){
+    const payload=await fetchText(`${base}getGlobalFuturesMinLine?symbol=CHA50CFD`,20_000,{referer:"https://finance.sina.com.cn/"});
+    return normalizeSinaA50Minute(payload,instrument);
+  }
+  const payload=await fetchText(`${base}getGlobalFuturesDailyKLine?symbol=CHA50CFD`,20_000,{referer:"https://finance.sina.com.cn/"});
+  return normalizeSinaA50Daily(payload,instrument,periodKey);
+}
+
+async function fetchSinaUs(instrument,periodKey){
+  const service=["1d","5d"].includes(periodKey)?`US_MinKService.getMinK?symbol=${encodeURIComponent(instrument.symbol)}&type=5&___qn=3`:`US_MinKService.getDailyK?symbol=${encodeURIComponent(instrument.symbol)}&___qn=3`;
+  const payload=await fetchText(`https://stock.finance.sina.com.cn/usstock/api/jsonp.php/var%20_DATA=/${service}`,25_000,{referer:"https://stock.finance.sina.com.cn/"});
+  return normalizeSinaUsKline(payload,instrument,periodKey);
+}
+
+async function fetchTwseIndex(instrument,periodKey){
+  const count={"1d":2,"5d":2,"1mo":2,"6mo":7,"1y":13,"3y":18}[periodKey]||2,now=new Date(),months=[];
+  for(let index=0;index<count;index++){
+    const date=new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth()-index,1));
+    months.push(`${date.getUTCFullYear()}${String(date.getUTCMonth()+1).padStart(2,"0")}01`);
+  }
+  const payloads=[];
+  for(let index=0;index<months.length;index+=4){
+    const batch=months.slice(index,index+4);
+    payloads.push(...await Promise.all(batch.map(async month=>{
+      const payload=await fetchJson(`https://www.twse.com.tw/rwd/zh/TAIEX/MI_5MINS_HIST?date=${month}&response=json`,15_000,{referer:"https://www.twse.com.tw/"});
+      const expected=`${Number(month.slice(0,4))-1911}/${month.slice(4,6)}`;
+      if(!String(payload?.data?.[0]?.[0]||"").startsWith(expected))throw new Error("台交所返回了非请求月份的数据");
+      return payload;
+    })));
+  }
+  return normalizeTwseIndexHistory(payloads,instrument,periodKey);
+}
+
+async function fetchEastmoneyTwii(instrument,periodKey){
+  const intraday=["1d","5d"].includes(periodKey),klt=intraday?(periodKey==="5d"?30:5):101,lmt=periodKey==="3y"?1000:400;
+  const url=`https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=100.TWII&fqt=0&end=20500101&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=${klt}&lmt=${intraday?2000:lmt}`;
+  return normalizeEastmoneyTwii(await fetchJson(url,18_000),instrument,periodKey);
+}
+
+function canUseSinaUs(instrument){
+  return["NASDAQ","NYSE","NasdaqGS","NasdaqGM","NasdaqCM"].includes(instrument.market)&&/^[A-Z][A-Z0-9.-]*$/.test(instrument.symbol);
+}
+
+function rememberInstrument(key,data){
+  const entry={savedAt:Date.now(),data};memoryCache.set(key,entry);diskCache[key]=entry;persistCache();return{...data,cache:"live"};
+}
+
 async function fetchInstrument(instrument, periodKey, force = false, maxAge = PERIODS[periodKey].ttl) {
   const key = `${instrument.symbol}:${periodKey}`;
   const period = PERIODS[periodKey];
@@ -233,12 +299,16 @@ async function fetchInstrument(instrument, periodKey, force = false, maxAge = PE
   let lastError;
 
   if(instrument.symbol==="AU9999"){
-    try{const data=await fetchEastmoneyAu9999(instrument,periodKey),entry={savedAt:Date.now(),data};memoryCache.set(key,entry);diskCache[key]=entry;persistCache();return{...data,cache:"live"};}
+    try{return rememberInstrument(key,await fetchEastmoneyAu9999(instrument,periodKey));}
+    catch(error){lastError=error;}
+    try{return rememberInstrument(key,await fetchSinaAu9999(instrument,periodKey));}
     catch(error){lastError=error;}
   }
 
   if(instrument.symbol==="CN00Y"){
-    try{const data=await fetchEastmoneyA50(instrument,periodKey),entry={savedAt:Date.now(),data};memoryCache.set(key,entry);diskCache[key]=entry;persistCache();return{...data,cache:"live"};}
+    try{return rememberInstrument(key,await fetchEastmoneyA50(instrument,periodKey));}
+    catch(error){lastError=error;}
+    try{return rememberInstrument(key,await fetchSinaA50(instrument,periodKey));}
     catch(error){lastError=error;}
   }
 
@@ -289,6 +359,23 @@ async function fetchInstrument(instrument, periodKey, force = false, maxAge = PE
       persistCache();
       return { ...data, cache: "live" };
     } catch (error) { lastError = error; }
+  }
+
+  if(instrument.symbol==="^TWII"){
+    try{return rememberInstrument(key,await fetchEastmoneyTwii(instrument,periodKey));}
+    catch(error){lastError=error;}
+    try{return rememberInstrument(key,await fetchTwseIndex(instrument,periodKey));}
+    catch(error){lastError=error;}
+  }
+
+  if(periodKey!=="1d"&&tencentMinuteCode(instrument)){
+    try{return rememberInstrument(key,await fetchTencentKline(instrument,periodKey));}
+    catch(error){lastError=error;}
+  }
+
+  if(canUseSinaUs(instrument)){
+    try{return rememberInstrument(key,await fetchSinaUs(instrument,periodKey));}
+    catch(error){lastError=error;}
   }
 
   const stale = diskCache[key];

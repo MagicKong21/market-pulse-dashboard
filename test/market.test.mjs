@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { INSTRUMENTS, inferSymbolMarket, isPeriod, isTradableIntradayTimestamp, mergeLatestQuote, mergeProvisionalIntraday, mergeSyntheticDxy, normalizeEastmoneyA50Daily, normalizeEastmoneyA50Intraday, normalizeEastmoneyAuDaily, normalizeEastmoneyAuIntraday, normalizeSinaGlobalFutureLatest, normalizeSymbolInput, normalizeTencentKline, normalizeTencentMinute, normalizeThsIndustryLine, normalizeThsIndustryMinute, normalizeYahooChart, normalizeYahooQuotes, resolveInstruments, sanitizeIntradayPoints, sortByMarketCapUsd } from "../market.mjs";
+import { INSTRUMENTS, inferSymbolMarket, isPeriod, isTradableIntradayTimestamp, mergeLatestQuote, mergeProvisionalIntraday, mergeSyntheticDxy, normalizeEastmoneyA50Daily, normalizeEastmoneyA50Intraday, normalizeEastmoneyAuDaily, normalizeEastmoneyAuIntraday, normalizeEastmoneyTwii, normalizeSinaA50Daily, normalizeSinaA50Minute, normalizeSinaAuHistory, normalizeSinaGlobalFutureLatest, normalizeSinaUsKline, normalizeSymbolInput, normalizeTencentKline, normalizeTencentMinute, normalizeThsIndustryLine, normalizeThsIndustryMinute, normalizeTwseIndexHistory, normalizeYahooChart, normalizeYahooQuotes, resolveInstruments, sanitizeIntradayPoints, sortByMarketCapUsd } from "../market.mjs";
 
 const fixture = { chart: { result: [{ meta: { currency: "USD", chartPreviousClose: 90, exchangeTimezoneName: "America/New_York", currentTradingPeriod: { regular: { start: 100, end: 110 } }, tradingPeriods: [[{ start: 1, end: 10 }]] }, timestamp: [3, 1, 2, 4], indicators: { quote: [{ close: [110, 100, null, 120] }] } }] } };
 
@@ -164,6 +164,50 @@ test("新浪纽约黄金最新分钟报价解析并补到近五日尾部",()=>{
   assert.equal(latest.price,4190.322);assert.equal(new Date(latest.asOf).toISOString(),"2026-07-03T07:58:00.000Z");
   const data={exchangeTimezone:"America/New_York",points:[[Date.parse("2026-07-03T03:30:00Z"),4188.5]],price:4188.5,previousClose:4100,change:88.5,changePercent:2,asOf:Date.parse("2026-07-03T03:30:00Z")};
   const merged=mergeLatestQuote(data,latest,"5d","新浪纽约黄金分钟报价");assert.equal(merged.points.length,2);assert.equal(merged.price,4190.322);assert.equal(merged.asOf,latest.asOf);
+});
+
+test("新浪美股日线可在 Yahoo 失效时生成完整备用行情",()=>{
+  const payload='var _DATA=([{"d":"2026-07-08","c":"310.00"},{"d":"2026-07-09","c":"312.00"},{"d":"2026-07-10","c":"315.00"}]);';
+  const result=normalizeSinaUsKline(payload,{symbol:"AAPL",name:"苹果",market:"NASDAQ"},"5d");
+  assert.equal(result.source,"新浪美股日线备用");
+  assert.equal(result.price,315);
+  assert.equal(result.previousClose,310);
+  assert.equal(result.points.length,2);
+});
+
+test("新浪 Au99.99 历史下载可作为黄金9999备用",()=>{
+  const payload="日期\t合约\t开盘\t最高\t最低\t收盘\n2026-07-10\tAu99.99\t899\t904\t896\t897.20\n2026-07-09\tAu99.99\t892\t899\t883\t899.00\n2026-07-08\tAu99.99\t900\t902\t895\t901.50";
+  const result=normalizeSinaAuHistory(payload,{symbol:"AU9999",name:"黄金9999",market:"SGE"},"5d");
+  assert.equal(result.source,"新浪 Au99.99 历史行情备用");
+  assert.equal(result.price,897.2);
+  assert.equal(result.points.length,2);
+});
+
+test("新浪 A50 分时和日线均可独立生成备用行情",()=>{
+  const minute='var _DATA=({"minLine_1d":[["2026-07-11","14962.000","sgxq","","17:00","14939.460","0","0","0","2026-07-10 17:00:00"],["17:01","14943.900","0","0","0","2026-07-10 17:01:00"],["17:02","14948.240","0","0","0","2026-07-10 17:02:00"]]});';
+  const instrument={symbol:"CN00Y",name:"富时中国 A50 期货",market:"SGX"};
+  const intraday=normalizeSinaA50Minute(minute,instrument);
+  assert.equal(intraday.price,14948.24);
+  assert.equal(intraday.previousClose,14939.46);
+  const daily='var _DATA=([{"date":"2026-07-08","close":"14800"},{"date":"2026-07-09","close":"14900"},{"date":"2026-07-10","close":"14948.24"}]);';
+  const history=normalizeSinaA50Daily(daily,instrument,"5d");
+  assert.equal(history.source,"新浪 A50 期货日线备用");
+  assert.equal(history.price,14948.24);
+});
+
+test("台交所官方月度指数数据可作为台湾加权备用",()=>{
+  const payload={stat:"OK",data:[["115/07/08","1","1","1","45,100.00"],["115/07/09","1","1","1","45,200.00"],["115/07/10","1","1","1","45,354.61"]]};
+  const result=normalizeTwseIndexHistory(payload,{symbol:"^TWII",name:"台湾加权",market:"TWSE"},"5d");
+  assert.equal(result.source,"台湾证券交易所指数日线备用");
+  assert.equal(result.price,45354.61);
+});
+
+test("东方财富分钟线可作为台湾加权的第一备用",()=>{
+  const payload={data:{preKPrice:45200,klines:["2026-07-10 09:00,45210,45210,45210,45210,1","2026-07-10 09:05,45210,45300,45300,45210,1","2026-07-10 09:10,45300,45354.61,45360,45290,1"]}};
+  const result=normalizeEastmoneyTwii(payload,{symbol:"^TWII",name:"台湾加权",market:"TWSE"},"1d");
+  assert.equal(result.source,"东方财富台湾加权分时备用");
+  assert.equal(result.price,45354.61);
+  assert.equal(result.previousClose,45200);
 });
 
 test("美元指数用六货币合成值补上官方延迟尾点",()=>{

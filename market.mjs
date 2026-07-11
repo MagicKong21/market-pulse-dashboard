@@ -375,6 +375,117 @@ export function normalizeSinaGlobalFutureLatest(payload,now=Date.now()){
   return{price,asOf};
 }
 
+function parseJsonpArray(text){
+  const source=String(text||""),start=source.indexOf("(["),end=source.lastIndexOf("])");
+  if(start<0||end<=start)throw new Error("行情数组响应格式无效");
+  const value=JSON.parse(source.slice(start+1,end+1));
+  if(!Array.isArray(value))throw new Error("行情响应不是数组");
+  return value;
+}
+
+function zonedTimestamp(date,time,timeZone){
+  const match=`${date} ${time}`.match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})(?::(\d{2}))?/);
+  if(!match)return NaN;
+  const wanted=Date.UTC(Number(match[1]),Number(match[2])-1,Number(match[3]),Number(match[4]),Number(match[5]),Number(match[6]||0));
+  let guess=wanted;
+  for(let index=0;index<3;index++){
+    const parts=new Intl.DateTimeFormat("en-CA",{timeZone,year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",second:"2-digit",hourCycle:"h23"}).formatToParts(new Date(guess));
+    const value=type=>Number(parts.find(part=>part.type===type)?.value);
+    const observed=Date.UTC(value("year"),value("month")-1,value("day"),value("hour"),value("minute"),value("second"));
+    if(!Number.isFinite(observed))return NaN;
+    const delta=wanted-observed;guess+=delta;if(delta===0)break;
+  }
+  return guess;
+}
+
+function normalizeDailyFallback(points,instrument,periodKey,{source,currency,timeZone,market=instrument.market}){
+  const parsed=[...new Map(points.filter(([time,value])=>Number.isFinite(time)&&Number.isFinite(value)&&value>0).sort((a,b)=>a[0]-b[0]).map(point=>[point[0],point])).values()];
+  if(parsed.length<2)throw new Error(`${source}有效价格点不足`);
+  let firstVisibleIndex=1;
+  if(periodKey==="1d")firstVisibleIndex=parsed.length-1;
+  else if(periodKey==="5d")firstVisibleIndex=Math.max(1,parsed.length-5);
+  else{
+    const cutoff=new Date(parsed.at(-1)[0]);
+    if(periodKey==="1mo")cutoff.setUTCMonth(cutoff.getUTCMonth()-1);
+    else if(periodKey==="6mo")cutoff.setUTCMonth(cutoff.getUTCMonth()-6);
+    else if(periodKey==="1y")cutoff.setUTCFullYear(cutoff.getUTCFullYear()-1);
+    else if(periodKey==="3y")cutoff.setUTCFullYear(cutoff.getUTCFullYear()-3);
+    const candidate=parsed.findIndex(([time])=>time>=cutoff.getTime());if(candidate>0)firstVisibleIndex=candidate;
+  }
+  let visible=parsed.slice(firstVisibleIndex),previousClose=parsed[firstVisibleIndex-1]?.[1]||parsed[0][1];
+  if(periodKey==="1d")visible=[parsed[firstVisibleIndex-1],parsed[firstVisibleIndex]];
+  if(visible.length<2)throw new Error(`${source}可见区间价格点不足`);
+  const last=visible.at(-1),baseline=periodKey==="1d"?previousClose:visible[0][1];
+  return{symbol:instrument.symbol,name:instrument.name,market,currency,exchangeTimezone:timeZone,price:last[1],previousClose,change:last[1]-baseline,changePercent:(last[1]-baseline)/baseline*100,asOf:last[0],resolution:"1d",provisionalLatest:false,provisionalPoint:null,source,session:null,points:visible};
+}
+
+export function normalizeSinaUsKline(payload,instrument,periodKey){
+  const rows=parseJsonpArray(payload),intraday=rows.some(row=>String(row?.d||"").includes(" "));
+  const points=rows.map(row=>{
+    const stamp=String(row?.d||""),[date,time="16:00:00"]=stamp.split(" ");
+    return[zonedTimestamp(date,time,"America/New_York"),Number(row?.c)];
+  }).filter(([time,value])=>Number.isFinite(time)&&Number.isFinite(value)&&value>0).sort((a,b)=>a[0]-b[0]);
+  if(!intraday)return normalizeDailyFallback(points,instrument,periodKey,{source:"新浪美股日线备用",currency:"USD",timeZone:"America/New_York"});
+  const dateKey=value=>new Intl.DateTimeFormat("en-CA",{timeZone:"America/New_York",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date(value));
+  const sessions=[...new Set(points.map(([time])=>dateKey(time)))],keep=periodKey==="5d"?5:1,selected=new Set(sessions.slice(-keep)),visible=points.filter(([time])=>selected.has(dateKey(time)));
+  if(visible.length<2)throw new Error("新浪美股分时可见区间价格点不足");
+  const first=visible[0][1],last=visible.at(-1);
+  return{symbol:instrument.symbol,name:instrument.name,market:instrument.market,currency:"USD",exchangeTimezone:"America/New_York",price:last[1],previousClose:first,change:last[1]-first,changePercent:(last[1]-first)/first*100,asOf:last[0],resolution:"5m",provisionalLatest:false,provisionalPoint:null,source:"新浪美股分时备用",session:null,points:visible};
+}
+
+export function normalizeSinaAuHistory(payload,instrument,periodKey){
+  const points=String(payload||"").split(/\r?\n/).slice(1).map(line=>{
+    const fields=line.split("\t"),date=fields[0],close=Number(fields[5]);
+    return[Date.parse(`${date}T07:30:00+08:00`),close];
+  });
+  return normalizeDailyFallback(points,instrument,periodKey,{source:"新浪 Au99.99 历史行情备用",currency:"CNY",timeZone:"Asia/Shanghai",market:"SGE"});
+}
+
+export function normalizeSinaA50Daily(payload,instrument,periodKey){
+  const points=parseJsonpArray(payload).map(row=>[zonedTimestamp(String(row?.date||""),"16:35:00","Asia/Singapore"),Number(row?.close)]);
+  return normalizeDailyFallback(points,instrument,periodKey,{source:"新浪 A50 期货日线备用",currency:"USD",timeZone:"Asia/Singapore",market:"SGX"});
+}
+
+export function normalizeSinaA50Minute(payload,instrument){
+  const rows=parseJsonp(payload)?.minLine_1d;
+  if(!Array.isArray(rows)||rows.length<2)throw new Error("新浪 A50 分时有效价格点不足");
+  const points=rows.map(row=>{
+    const stamp=String(row.at(-1)||""),price=Number(row[1]);
+    const match=stamp.match(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2})/);
+    return[zonedTimestamp(match?.[1]||"",match?.[2]||"","Asia/Shanghai"),price];
+  }).filter(([time,value])=>Number.isFinite(time)&&Number.isFinite(value)&&value>0);
+  if(points.length<2)throw new Error("新浪 A50 分时有效价格点不足");
+  const previousClose=Number(rows[0]?.[5])>0?Number(rows[0][5]):points[0][1],last=points.at(-1);
+  return{symbol:instrument.symbol,name:instrument.name,market:"SGX",currency:"USD",exchangeTimezone:"Asia/Singapore",price:last[1],previousClose,change:last[1]-previousClose,changePercent:(last[1]-previousClose)/previousClose*100,asOf:last[0],resolution:"1m",provisionalLatest:false,provisionalPoint:null,source:"新浪 A50 期货分时备用",session:null,points};
+}
+
+export function normalizeTwseIndexHistory(payloads,instrument,periodKey){
+  const points=[];
+  for(const payload of Array.isArray(payloads)?payloads:[payloads]){
+    const root=typeof payload==="string"?JSON.parse(payload):payload;
+    for(const row of Array.isArray(root?.data)?root.data:[]){
+      const match=String(row[0]||"").match(/^(\d+)\/(\d+)\/(\d+)$/),close=Number(String(row[4]||"").replaceAll(",",""));
+      if(match)points.push([Date.UTC(Number(match[1])+1911,Number(match[2])-1,Number(match[3]),5,30),close]);
+    }
+  }
+  return normalizeDailyFallback(points,instrument,periodKey,{source:"台湾证券交易所指数日线备用",currency:"TWD",timeZone:"Asia/Taipei",market:"TWSE"});
+}
+
+export function normalizeEastmoneyTwii(payload,instrument,periodKey){
+  const rows=eastmoneyRows(payload),intraday=rows.some(raw=>String(raw).includes(" "));
+  const points=rows.map(raw=>{
+    const fields=String(raw).split(","),stamp=fields[0],close=Number(fields[2]);
+    if(stamp.includes(" ")){const[date,time]=stamp.split(" ");return[zonedTimestamp(date,time,"Asia/Taipei"),close];}
+    return[zonedTimestamp(stamp,"13:30:00","Asia/Taipei"),close];
+  }).filter(([time,value])=>Number.isFinite(time)&&Number.isFinite(value)&&value>0).sort((a,b)=>a[0]-b[0]);
+  if(!intraday)return normalizeDailyFallback(points,instrument,periodKey,{source:"东方财富台湾加权日线备用",currency:"TWD",timeZone:"Asia/Taipei",market:"TWSE"});
+  const dateKey=value=>new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Taipei",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date(value));
+  const sessions=[...new Set(points.map(([time])=>dateKey(time)))],keep=periodKey==="5d"?5:1,selected=new Set(sessions.slice(-keep)),visible=points.filter(([time])=>selected.has(dateKey(time)));
+  if(visible.length<2)throw new Error("东方财富台湾加权分时有效价格点不足");
+  const reportedPrevious=Number(payload?.data?.preKPrice),baseline=reportedPrevious>0?reportedPrevious:visible[0][1],last=visible.at(-1);
+  return{symbol:instrument.symbol,name:instrument.name,market:"TWSE",currency:"TWD",exchangeTimezone:"Asia/Taipei",price:last[1],previousClose:baseline,change:last[1]-baseline,changePercent:(last[1]-baseline)/baseline*100,asOf:last[0],resolution:"5m",provisionalLatest:false,provisionalPoint:null,source:"东方财富台湾加权分时备用",session:null,points:visible};
+}
+
 export function normalizeTencentMinute(payload, instrument) {
   const entry = Object.values(payload?.data || {})[0];
   const date = entry?.data?.date;
