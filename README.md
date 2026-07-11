@@ -61,15 +61,18 @@ npm test
 
 ## 发布维护者
 
-版本从 `0.0.1` 开始。每次向 `main` 推送普通提交后，GitHub Actions 会：
+发布前运行 `npm run release:prepare`，它会递增补丁位并同步 `package.json` 与 `public/version.js`。确认测试通过后提交变更并创建同版本标签，例如：
 
-1. 只递增补丁位，例如 `0.0.1 → 0.0.2`；
-2. 同步 `package.json` 与页面显示的版本；
-3. 运行完整测试；
-4. 创建对应 Git 标签与 GitHub Release；
-5. 下载并校验官方 Node.js LTS，生成三个平台的开箱即用发布包。
+```bash
+npm run release:prepare
+node --test
+git add package.json public/version.js
+git commit -m "chore: bump version"
+git tag -a v0.0.8 -m "Release v0.0.8"
+git push origin main --tags
+```
 
-主版本和次版本不会被自动修改。如需从 `0.0.x` 升到 `0.1.0` 或 `1.0.0`，应先由维护者主动修改 `package.json` 和 `public/version.js`，自动流程随后会继续递增新的补丁系列。
+GitHub Actions 只响应 `v*.*.*` 标签，使用标签对应的同一个提交运行测试、打包并创建 GitHub Release。Sites 发布也必须使用这个提交，确保本地版、GitHub 版和在线版显示同一个版本号。
 
 ## 许可
 

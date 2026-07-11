@@ -2,8 +2,8 @@ name: Version and release
 
 on:
   push:
-    branches:
-      - main
+    tags:
+      - "v*.*.*"
 
 permissions:
   contents: write
@@ -22,10 +22,10 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       commit_sha: ${{ steps.version.outputs.commit_sha }}
     steps:
-      - name: Check out main with tags
+      - name: Check out release tag
         uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.ref }}
           fetch-depth: 0
 
       - name: Set up Node.js LTS
@@ -33,31 +33,17 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      - name: Increment patch version
+      - name: Validate release version
         id: version
         shell: bash
         run: |
           set -euo pipefail
-          series=$(node -p 'const v=require("./package.json").version.split("."); `${v[0]}.${v[1]}`')
-          latest_tag=$(git tag --list "v${series}.*" --sort=-v:refname | head -n 1)
-          version=$(node scripts/bump-version.mjs "$latest_tag")
-          tag="v${version}"
-
+          tag="${GITHUB_REF_NAME}"
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          version="${tag#v}"
+          package_version=$(node -p 'require("./package.json").version')
+          [[ "$package_version" == "$version" ]]
           node --test
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add package.json public/version.js
-          if ! git diff --cached --quiet; then
-            git commit -m "chore: bump version to ${tag}"
-            git push origin HEAD:main
-          fi
-
-          if ! git rev-parse "refs/tags/${tag}" >/dev/null 2>&1; then
-            git tag -a "$tag" -m "Release $tag"
-            git push origin "$tag"
-          fi
-
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "commit_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 

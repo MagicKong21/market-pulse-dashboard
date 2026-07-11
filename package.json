@@ -1,7 +1,7 @@
 {
   "name": "global-stock-dashboard",
   "private": true,
-  "version": "0.0.5",
+  "version": "0.0.8",
   "description": "本地运行的全球科技与半导体股票看板",
   "license": "MIT",
   "repository": {
@@ -12,6 +12,7 @@
   "type": "module",
   "scripts": {
     "build": "node scripts/build-sites.mjs",
+    "release:prepare": "node scripts/release-prepare.mjs",
     "start": "node server.mjs",
     "test": "node --test"
   },
