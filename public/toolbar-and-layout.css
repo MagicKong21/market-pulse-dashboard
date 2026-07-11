@@ -64,6 +64,12 @@ footer {
   text-align: right;
 }
 
+.project-disclaimer {
+  max-width: 860px;
+  color: rgba(129,145,142,.78);
+  line-height: 1.5;
+}
+
 #status,
 #timestamp {
   width: max-content;
@@ -73,7 +79,7 @@ footer {
 
 #timestamp {
   display: grid;
-  grid-template-columns: auto max-content 8px auto max-content 8px max-content;
+  grid-template-columns: max-content 8px auto max-content 8px auto max-content;
   align-items: center;
   justify-content: end;
   column-gap: 5px;
@@ -477,7 +483,7 @@ footer {
 
   #timestamp {
     width: max-content;
-    grid-template-columns: auto auto 10px auto auto 10px auto;
+    grid-template-columns: max-content 10px auto auto 10px auto auto;
     column-gap: 4px;
   }
 }

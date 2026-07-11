@@ -41,9 +41,17 @@ test("底部更新时间使用固定槽位避免倒计时跳闪",async()=>{
   assert.match(app,/class="timestamp-duration"/);
   assert.match(app,/class="timestamp-countdown"/);
   assert.match(app,/&nbsp;秒后更新/);
+  assert.ok(app.indexOf('class="timestamp-countdown"')<app.indexOf('class="timestamp-label">当前'));
   assert.match(css,/#status,\s*#timestamp \{[^}]*width: max-content[^}]*text-align: right/s);
-  assert.match(css,/#timestamp \{[^}]*grid-template-columns: auto max-content 8px auto max-content 8px max-content[^}]*align-items: center[^}]*column-gap: 5px[^}]*font-variant-numeric: tabular-nums/s);
+  assert.match(css,/#timestamp \{[^}]*grid-template-columns: max-content 8px auto max-content 8px auto max-content[^}]*align-items: center[^}]*column-gap: 5px[^}]*font-variant-numeric: tabular-nums/s);
   assert.match(css,/\.timestamp-duration \{[^}]*grid-template-columns: 4ch max-content[^}]*align-items: center/s);
   assert.match(css,/\.timestamp-countdown \{[^}]*grid-template-columns: 3ch max-content[^}]*align-items: center/s);
   assert.match(css,/\.timestamp-separator \{[^}]*text-align: center/s);
+});
+
+test("页脚包含个人学习项目风险提示",async()=>{
+  const html=await readFile(new URL("../public/index.html",import.meta.url),"utf8");
+  assert.match(html,/个人学习项目，数据可能延迟、缺失或有误/);
+  assert.match(html,/不构成投资建议或交易依据/);
+  assert.match(html,/风险自担。投资有风险，入市需谨慎/);
 });

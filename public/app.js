@@ -230,13 +230,13 @@ function renderUpdateTimestamp(){
   if(!latestUpdateMeta)return;
   const countdown=dashboardState.autoRefreshMs&&autoRefreshDueAt?autoRefreshCountdownSeconds(autoRefreshDueAt-Date.now()):null;
   timestamp.innerHTML=[
+    countdown===null?'<span class="timestamp-countdown off">自动更新已关闭</span>':`<span class="timestamp-countdown"><span class="timestamp-number">${countdown}</span><span class="timestamp-unit">&nbsp;秒后更新</span></span>`,
+    '<span class="timestamp-separator">·</span>',
     '<span class="timestamp-label">当前</span>',
     `<span class="timestamp-time">${formatTime(latestUpdateMeta.generatedAt)}</span>`,
     '<span class="timestamp-separator">·</span>',
     '<span class="timestamp-label">耗时</span>',
-    `<span class="timestamp-duration"><span class="timestamp-number">${Math.max(0,Math.round(Number(latestUpdateMeta.durationMs)||0))}</span><span class="timestamp-unit">ms</span></span>`,
-    '<span class="timestamp-separator">·</span>',
-    countdown===null?'<span class="timestamp-countdown off">自动更新已关闭</span>':`<span class="timestamp-countdown"><span class="timestamp-number">${countdown}</span><span class="timestamp-unit">&nbsp;秒后更新</span></span>`
+    `<span class="timestamp-duration"><span class="timestamp-number">${Math.max(0,Math.round(Number(latestUpdateMeta.durationMs)||0))}</span><span class="timestamp-unit">ms</span></span>`
   ].join("");
 }
 
