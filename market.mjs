@@ -1,19 +1,22 @@
 export const INSTRUMENTS = Object.freeze([
-  { symbol: "AAPL", name: "苹果", market: "NASDAQ" },
-  { symbol: "MSFT", name: "微软", market: "NASDAQ" },
   { symbol: "NVDA", name: "英伟达", market: "NASDAQ" },
+  { symbol: "AAPL", name: "苹果", market: "NASDAQ" },
   { symbol: "GOOGL", name: "谷歌 A", market: "NASDAQ" },
+  { symbol: "MSFT", name: "微软", market: "NASDAQ" },
   { symbol: "AMZN", name: "亚马逊", market: "NASDAQ" },
+  { symbol: "TSM", name: "台积电 ADR", market: "NYSE" },
+  { symbol: "SPCX", name: "SpaceX", market: "NasdaqGS" },
+  { symbol: "AVGO", name: "博通", market: "NASDAQ" },
   { symbol: "META", name: "Meta", market: "NASDAQ" },
   { symbol: "TSLA", name: "特斯拉", market: "NASDAQ" },
-  { symbol: "TSM", name: "台积电 ADR", market: "NYSE" },
-  { symbol: "MU", name: "美光", market: "NASDAQ" },
-  { symbol: "AVGO", name: "博通", market: "NASDAQ" },
-  { symbol: "AMD", name: "AMD", market: "NASDAQ" },
-  { symbol: "000660.KS", name: "SK 海力士", market: "KRX" },
   { symbol: "005930.KS", name: "三星电子", market: "KRX" },
+  { symbol: "MU", name: "美光", market: "NASDAQ" },
+  { symbol: "000660.KS", name: "SK 海力士", market: "KRX" },
+  { symbol: "AMD", name: "AMD", market: "NASDAQ" },
+  { symbol: "ASML", name: "阿斯麦 ADR", market: "NASDAQ" },
   { symbol: "INTC", name: "英特尔", market: "NASDAQ" },
-  { symbol: "ASML", name: "阿斯麦 ADR", market: "NASDAQ" }
+  { symbol: "SNDK", name: "闪迪公司", market: "NasdaqGS" },
+  { symbol: "WDC", name: "西部数据", market: "NasdaqGS" }
 ]);
 
 export const PERIODS = Object.freeze({

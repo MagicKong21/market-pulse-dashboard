@@ -12,7 +12,7 @@ const base = `http://127.0.0.1:${address.port}`;
 test("健康检查只暴露预期标的数", async () => {
   const response = await fetch(`${base}/api/health`);
   assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { ok: true, instruments: 15 });
+  assert.deepEqual(await response.json(), { ok: true, instruments: 18 });
 });
 
 test("拒绝未知周期", async () => {

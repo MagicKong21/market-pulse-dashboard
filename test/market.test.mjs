@@ -4,12 +4,14 @@ import { INSTRUMENTS, inferSymbolMarket, isPeriod, isTradableIntradayTimestamp, 
 
 const fixture = { chart: { result: [{ meta: { currency: "USD", chartPreviousClose: 90, exchangeTimezoneName: "America/New_York", currentTradingPeriod: { regular: { start: 100, end: 110 } }, tradingPeriods: [[{ start: 1, end: 10 }]] }, timestamp: [3, 1, 2, 4], indicators: { quote: [{ close: [110, 100, null, 120] }] } }] } };
 
-test("15 个标的代码唯一且包含三个市场", () => {
-  assert.equal(INSTRUMENTS.length, 15);
-  assert.equal(new Set(INSTRUMENTS.map(item => item.symbol)).size, 15);
+test("海外默认名单与截图的 18 个标的及顺序一致", () => {
+  const expected=["NVDA","AAPL","GOOGL","MSFT","AMZN","TSM","SPCX","AVGO","META","TSLA","005930.KS","MU","000660.KS","AMD","ASML","INTC","SNDK","WDC"];
+  assert.deepEqual(INSTRUMENTS.map(item=>item.symbol),expected);
+  assert.equal(new Set(INSTRUMENTS.map(item => item.symbol)).size, 18);
   assert.ok(INSTRUMENTS.some(item => item.market === "KRX"));
-  assert.ok(INSTRUMENTS.some(item => item.symbol === "AMD"));
-  assert.ok(INSTRUMENTS.some(item => item.symbol === "INTC"));
+  assert.equal(INSTRUMENTS.find(item=>item.symbol==="SPCX")?.name,"SpaceX");
+  assert.equal(INSTRUMENTS.find(item=>item.symbol==="SNDK")?.name,"闪迪公司");
+  assert.equal(INSTRUMENTS.find(item=>item.symbol==="WDC")?.name,"西部数据");
 });
 
 test("统一交易时段清洗器剔除周末伪夜盘但保留真实横盘",()=>{

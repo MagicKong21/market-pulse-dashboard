@@ -4,21 +4,21 @@ import { AUTO_REFRESH_OPTIONS, autoRefreshCountdownSeconds, normalizeAutoRefresh
 
 const IS_HOSTED_SITE=!(["localhost","127.0.0.1","::1"].includes(location.hostname));
 const DEFAULT_GLOBAL_STOCKS = [
-  ["AAPL","苹果","NASDAQ"],["MSFT","微软","NASDAQ"],["NVDA","英伟达","NASDAQ"],["GOOGL","谷歌 A","NASDAQ"],["AMZN","亚马逊","NASDAQ"],
-  ["META","Meta","NASDAQ"],["TSLA","特斯拉","NASDAQ"],["TSM","台积电 ADR","NYSE"],["MU","美光","NASDAQ"],["AVGO","博通","NASDAQ"],
-  ["AMD","AMD","NASDAQ"],["000660.KS","SK 海力士","KRX"],["005930.KS","三星电子","KRX"],["INTC","英特尔","NASDAQ"],["ASML","阿斯麦 ADR","NASDAQ"]
+  ["NVDA","英伟达","NASDAQ"],["AAPL","苹果","NASDAQ"],["GOOGL","谷歌 A","NASDAQ"],["MSFT","微软","NASDAQ"],["AMZN","亚马逊","NASDAQ"],["TSM","台积电 ADR","NYSE"],
+  ["SPCX","SpaceX","NasdaqGS"],["AVGO","博通","NASDAQ"],["META","Meta","NASDAQ"],["TSLA","特斯拉","NASDAQ"],["005930.KS","三星电子","KRX"],["MU","美光","NASDAQ"],
+  ["000660.KS","SK 海力士","KRX"],["AMD","AMD","NASDAQ"],["ASML","阿斯麦 ADR","NASDAQ"],["INTC","英特尔","NASDAQ"],["SNDK","闪迪公司","NasdaqGS"],["WDC","西部数据","NasdaqGS"]
 ].map(([symbol,name,market])=>({symbol,name,market}));
 const DEFAULT_CHINA_STOCKS = [
-  ["0700.HK","腾讯控股","HKEX"],["9988.HK","阿里巴巴","HKEX"],["601138.SS","工业富联","SSE"],["300308.SZ","中际旭创","SZSE"],["688256.SS","寒武纪","SSE"],["688041.SS","海光信息","SSE"],
-  ["2513.HK","智谱","HKEX"],["002371.SZ","北方华创","SZSE"],["0981.HK","中芯国际","HKEX"],["603986.SS","兆易创新","SSE"],["1810.HK","小米集团","HKEX"],["688012.SS","中微公司","SSE"],
-  ["688008.SS","澜起科技","SSE"],["688795.SS","摩尔线程","SSE"],["688802.SS","沐曦股份","SSE"],["9903.HK","天数智芯","HKEX"],["000977.SZ","浪潮信息","SZSE"],["1879.HK","曦智科技","HKEX"]
+  ["0700.HK","腾讯控股","HKEX"],["9988.HK","阿里巴巴","HKEX"],["688981.SS","中芯国际","SSE"],["601138.SS","工业富联","SSE"],["300308.SZ","中际旭创","SZSE"],["688256.SS","寒武纪","SSE"],
+  ["688041.SS","海光信息","SSE"],["688347.SS","华虹宏力","SSE"],["2513.HK","智谱","HKEX"],["002371.SZ","北方华创","SZSE"],["1810.HK","小米集团","HKEX"],["603986.SS","兆易创新","SSE"],
+  ["688012.SS","中微公司","SSE"],["688802.SS","沐曦股份","SSE"],["688795.SS","摩尔线程","SSE"],["688008.SS","澜起科技","SSE"],["301308.SZ","江波龙","SZSE"],["000977.SZ","浪潮信息","SZSE"]
 ].map(([symbol,name,market])=>({symbol,name,market}));
 const DEFAULT_MARKET_STOCKS = [
-  ["^SOX","费城半导体","NASDAQ","指数"],["^NDX","纳指 100","NASDAQ","指数"],["^GSPC","标普 500","NYSE","指数"],["^TWII","台湾加权","TWSE","指数"],["^N225","日经 225","TSE","指数"],
-  ["^KS11","KOSPI","KRX","指数"],["HSTECH.HK","恒生科技","HKEX","指数"],["000001.SS","上证指数","SSE","指数"],["399001.SZ","深证成指","SZSE","指数"],["000688.SS","科创 50","SSE","指数"],["399006.SZ","创业板","SZSE","指数"],["CN00Y","富时中国 A50 期货","SGX","股指期货"],
-  ["^TNX","美债 10 年期","CBOE","利率"],["DX-Y.NYB","美元指数","NYB","指数"],["GC=F","国际黄金","COMEX","期货"],["AU9999","黄金9999","SGE","现货黄金"],["CL=F","原油","NYMEX","商品"],["BTC-USD","比特币","CRYPTO","加密资产"]
+  ["^SOX","费城半导体","NASDAQ","指数"],["^NDX","纳指 100","NASDAQ","指数"],["^GSPC","标普 500","NYSE","指数"],["^TNX","美债 10 年期","CBOE","利率"],["DX-Y.NYB","美元指数","NYB","指数"],["CL=F","原油","NYMEX","商品"],
+  ["^KS11","KOSPI","KRX","指数"],["^N225","日经 225","TSE","指数"],["HSTECH.HK","恒生科技","HKEX","指数"],["^TWII","台湾加权","TWSE","指数"],["GC=F","国际黄金","COMEX","期货"],["AU9999","黄金9999","SGE","现货黄金"],
+  ["CN00Y","富时中国 A50 期货","SGX","股指期货"],["000001.SS","上证指数","SSE","指数"],["399001.SZ","深证成指","SZSE","指数"],["000688.SS","科创 50","SSE","指数"],["399006.SZ","创业板","SZSE","指数"],["BTC-USD","比特币","CRYPTO","加密资产"]
 ].map(([symbol,name,market,assetType])=>({symbol,name,market,assetType}));
-const STORAGE_KEY=IS_HOSTED_SITE?"market-pulse-settings-hosted-v1":"market-pulse-settings-v3",LEGACY_STORAGE_KEY="market-pulse-settings-v2",SETTINGS_VERSION=9,PERIOD_KEYS=["1d","5d","1mo","6mo","1y","3y"],SYMBOL_PATTERN=/^[A-Z0-9^.=\-]{1,20}$/;
+const STORAGE_KEY=IS_HOSTED_SITE?"market-pulse-settings-hosted-v2":"market-pulse-settings-v3",LEGACY_STORAGE_KEY="market-pulse-settings-v2",SETTINGS_VERSION=9,PERIOD_KEYS=["1d","5d","1mo","6mo","1y","3y"],SYMBOL_PATTERN=/^[A-Z0-9^.=\-]{1,20}$/;
 const UPDATE_CHECK_KEY="market-pulse-update-check-v1",UPDATE_DISMISSED_KEY="market-pulse-update-dismissed-v1",UPDATE_INTERVAL=2*24*60*60*1000;
 const $=selector=>document.querySelector(selector),grid=$("#grid"),status=$("#status"),timestamp=$("#timestamp"),refresh=$("#refresh");
 const buttons=[...document.querySelectorAll("[data-period]")],universeButtons=[...document.querySelectorAll("[data-universe]")],dialog=$("#settingsDialog"),preview=$("#layoutPreview"),formError=$("#formError"),slotEditor=$("#slotEditor");
