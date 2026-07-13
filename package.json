@@ -1,7 +1,7 @@
 {
   "name": "global-stock-dashboard",
   "private": true,
-  "version": "0.0.16",
+  "version": "0.0.17",
   "description": "本地运行的全球科技与半导体股票看板",
   "license": "MIT",
   "repository": {

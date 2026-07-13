@@ -449,14 +449,16 @@ export function normalizeSinaA50Daily(payload,instrument,periodKey){
 export function normalizeSinaA50Minute(payload,instrument){
   const rows=parseJsonp(payload)?.minLine_1d;
   if(!Array.isArray(rows)||rows.length<2)throw new Error("新浪 A50 分时有效价格点不足");
-  const points=rows.map(row=>{
+  const parsed=sanitizeIntradayPoints(rows.map(row=>{
     const stamp=String(row.at(-1)||""),price=Number(row[1]);
     const match=stamp.match(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2})/);
     return[zonedTimestamp(match?.[1]||"",match?.[2]||"","Asia/Shanghai"),price];
-  }).filter(([time,value])=>Number.isFinite(time)&&Number.isFinite(value)&&value>0);
+  }),"SGX","Asia/Singapore");
+  const keys=parsed.map(([time])=>a50TradingDayKey(time)),tradingDay=keys.at(-1),firstIndex=keys.findIndex(key=>key===tradingDay);
+  const points=parsed.slice(firstIndex).filter(([time])=>a50TradingDayKey(time)===tradingDay).map(([time,value])=>[time,value]);
   if(points.length<2)throw new Error("新浪 A50 分时有效价格点不足");
-  const previousClose=Number(rows[0]?.[5])>0?Number(rows[0][5]):points[0][1],last=points.at(-1);
-  return{symbol:instrument.symbol,name:instrument.name,market:"SGX",currency:"USD",exchangeTimezone:"Asia/Singapore",price:last[1],previousClose,change:last[1]-previousClose,changePercent:(last[1]-previousClose)/previousClose*100,asOf:last[0],resolution:"1m",provisionalLatest:false,provisionalPoint:null,source:"新浪 A50 期货分时备用",session:null,points};
+  const previousClose=firstIndex>0?parsed[firstIndex-1][1]:Number(rows[0]?.[5])>0?Number(rows[0][5]):points[0][1],last=points.at(-1),sessionEnd=asiaShanghaiTimestamp(tradingDay.replaceAll("-",""),"1635");
+  return{symbol:instrument.symbol,name:instrument.name,market:"SGX",currency:"USD",exchangeTimezone:"Asia/Singapore",price:last[1],previousClose,change:last[1]-previousClose,changePercent:(last[1]-previousClose)/previousClose*100,asOf:last[0],resolution:"1m",provisionalLatest:false,provisionalPoint:null,source:"新浪 A50 期货分时备用",session:{start:sessionEnd-23*60*60*1000-35*60*1000,end:sessionEnd},points};
 }
 
 export function normalizeTwseIndexHistory(payloads,instrument,periodKey){
