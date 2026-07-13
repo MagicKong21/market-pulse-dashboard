@@ -204,7 +204,10 @@ const AU9999_KLINE_URL="https://push2his.eastmoney.com/api/qt/stock/kline/get?se
 async function fillMissingAu9999Intraday(instruments){
   const index=instruments.findIndex(item=>item.symbol==="AU9999"&&item.source!=="东方财富 AU9999");
   if(index<0||period!=="1d")return instruments;
-  try{return instruments.map((item,itemIndex)=>itemIndex===index?{...item,...normalizeAu9999BrowserPayload(await (await fetch(AU9999_KLINE_URL,{cache:"no-store"})).json()),source:"东方财富 AU9999（浏览器直连）"}:item);}
+  try{
+    const repaired={...instruments[index],...normalizeAu9999BrowserPayload(await (await fetch(AU9999_KLINE_URL,{cache:"no-store"})).json()),source:"东方财富 AU9999（浏览器直连）"};
+    return instruments.map((item,itemIndex)=>itemIndex===index?repaired:item);
+  }
   catch{return instruments;}
 }
 async function fillMissingA50Intraday(instruments){
