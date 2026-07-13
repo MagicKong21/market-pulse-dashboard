@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { INSTRUMENTS, inferSymbolMarket, isPeriod, isTradableIntradayTimestamp, mergeLatestQuote, mergeProvisionalIntraday, mergeSyntheticDxy, normalizeEastmoneyA50Daily, normalizeEastmoneyA50Intraday, normalizeEastmoneyAuDaily, normalizeEastmoneyAuIntraday, normalizeEastmoneyBreadth, normalizeEastmoneyGlobal, normalizeEastmoneyTwii, normalizeSinaA50Daily, normalizeSinaA50Minute, normalizeSinaAuHistory, normalizeSinaGlobalFutureLatest, normalizeSinaUsKline, normalizeSymbolInput, normalizeTencentKline, normalizeTencentMinute, normalizeThsIndustryLine, normalizeThsIndustryMinute, normalizeTwseIndexHistory, normalizeYahooChart, normalizeYahooQuotes, resolveInstruments, sanitizeIntradayPoints, sortByMarketCapUsd } from "../market.mjs";
+import { INSTRUMENTS, inferSymbolMarket, isPeriod, isTradableIntradayTimestamp, mergeLatestQuote, mergeProvisionalIntraday, mergeSyntheticDxy, normalizeEastmoneyA50Daily, normalizeEastmoneyA50Intraday, normalizeEastmoneyAuDaily, normalizeEastmoneyAuIntraday, normalizeEastmoneyBreadth, normalizeEastmoneyBreadthRow, normalizeEastmoneyGlobal, normalizeEastmoneyTwii, normalizeSinaA50Daily, normalizeSinaA50Minute, normalizeSinaAuHistory, normalizeSinaGlobalFutureLatest, normalizeSinaUsKline, normalizeSymbolInput, normalizeTencentKline, normalizeTencentMinute, normalizeThsIndustryLine, normalizeThsIndustryMinute, normalizeTwseIndexHistory, normalizeYahooChart, normalizeYahooQuotes, resolveInstruments, sanitizeIntradayPoints, sortByMarketCapUsd } from "../market.mjs";
 
 const fixture = { chart: { result: [{ meta: { currency: "USD", chartPreviousClose: 90, exchangeTimezoneName: "America/New_York", currentTradingPeriod: { regular: { start: 100, end: 110 } }, tradingPeriods: [[{ start: 1, end: 10 }]] }, timestamp: [3, 1, 2, 4], indicators: { quote: [{ close: [110, 100, null, 120] }] } }] } };
 
@@ -171,6 +171,12 @@ test("东方财富指数涨跌家数计算上涨比例",()=>{
   const result=normalizeEastmoneyBreadth({data:{diff:[{f104:436,f105:1849,f106:23}]}});
   assert.deepEqual(result,{breadthUp:436,breadthDown:1849,breadthFlat:23,breadthTotal:2308,breadthUpPercent:436/2308*100,breadthSource:"东方财富"});
   assert.equal(normalizeEastmoneyBreadth({data:{diff:[{f104:0,f105:0,f106:0}]}}),null);
+});
+
+test("东方财富批量指数行可分别标准化",()=>{
+  const rows=[{f12:"000001",f104:436,f105:1849,f106:23},{f12:"399001",f104:346,f105:2561,f106:20}];
+  assert.equal(normalizeEastmoneyBreadthRow(rows[0]).breadthUpPercent.toFixed(2),"18.89");
+  assert.equal(normalizeEastmoneyBreadthRow(rows[1]).breadthDown,2561);
 });
 
 test("Yahoo 收盘后报价心跳的时间不得超过交易时段终点",()=>{

@@ -1,6 +1,7 @@
 import { chartProgressValues, chartSegmentIndexes, marketSessionForTime, rangeTimeLabel } from "./chart-utils.js";
 import { APP_VERSION, LATEST_RELEASE_API, RELEASES_URL, isNewerVersion } from "./version.js";
 import { AUTO_REFRESH_OPTIONS, autoRefreshCountdownSeconds, normalizeAutoRefreshMs } from "./auto-refresh.js";
+import { normalizeProfile, SYMBOL_PATTERN } from "./profile-utils.js";
 
 const IS_HOSTED_SITE=!(["localhost","127.0.0.1","::1"].includes(location.hostname));
 const DEFAULT_GLOBAL_STOCKS = [
@@ -22,7 +23,7 @@ const DEFAULT_FOCUS_STOCKS = [
   ["^KS11","KOSPI","KRX","指数"],["^N225","日经 225","TSE","指数"],["HSTECH.HK","恒生科技","HKEX","指数"],["CN00Y","富时中国 A50 期货","SGX","股指期货"],["000001.SS","上证指数","SSE","指数"],["399001.SZ","深证成指","SZSE","指数"],["000688.SS","科创 50","SSE","指数"],["399006.SZ","创业板","SZSE","指数"],
   ["005930.KS","三星电子","KRX"],["000660.KS","SK 海力士","KRX"],["688981.SS","中芯国际","SSE"],["601138.SS","工业富联","SSE"],["300308.SZ","中际旭创","SZSE"],["688256.SS","寒武纪","SSE"],["2513.HK","智谱","HKEX"],["002371.SZ","北方华创","SZSE"],["603986.SS","兆易创新","SSE"],["000977.SZ","浪潮信息","SZSE"]
 ].map(([symbol,name,market,assetType])=>({symbol,name,market,assetType}));
-const STORAGE_KEY=IS_HOSTED_SITE?"market-pulse-settings-hosted-v2":"market-pulse-settings-v3",LEGACY_STORAGE_KEY="market-pulse-settings-v2",SETTINGS_VERSION=10,PERIOD_KEYS=["1d","5d","1mo","6mo","1y","3y"],SYMBOL_PATTERN=/^[A-Z0-9^.=\-]{1,20}$/;
+const STORAGE_KEY=IS_HOSTED_SITE?"market-pulse-settings-hosted-v2":"market-pulse-settings-v3",LEGACY_STORAGE_KEY="market-pulse-settings-v2",SETTINGS_VERSION=10,PERIOD_KEYS=["1d","5d","1mo","6mo","1y","3y"];
 const UPDATE_CHECK_KEY="market-pulse-update-check-v1",UPDATE_DISMISSED_KEY="market-pulse-update-dismissed-v1",UPDATE_INTERVAL=2*24*60*60*1000;
 const $=selector=>document.querySelector(selector),grid=$("#grid"),status=$("#status"),timestamp=$("#timestamp"),refresh=$("#refresh");
 const buttons=[...document.querySelectorAll("[data-period]")],universeButtons=[...document.querySelectorAll("[data-universe]")],dialog=$("#settingsDialog"),preview=$("#layoutPreview"),formError=$("#formError"),slotEditor=$("#slotEditor");
@@ -58,20 +59,6 @@ async function checkForUpdates(){
   }catch{/* 离线或 GitHub 不可达时静默跳过 */}
 }
 
-function clamp(value,min,max,fallback){const number=Number(value);return Number.isInteger(number)&&number>=min&&number<=max?number:fallback;}
-function normalizeProfile(saved,defaults,{legacyGlobal=false}={}){
-  const replacements=legacyGlobal?{"^SOX":{symbol:"AMD",name:"AMD",market:"NASDAQ"},"9984.T":{symbol:"INTC",name:"英特尔",market:"NASDAQ"}}:{};
-  const defaultBySymbol=new Map(defaults.map(item=>[item.symbol,item]));
-  const raw=Array.isArray(saved?.stocks)?saved.stocks.map(item=>{
-    const normalized=replacements[item?.symbol]||{...(defaultBySymbol.get(item?.symbol)||{}),...item};
-    return normalized.symbol==="^KS11"&&normalized.name==="韩国综合"?{...normalized,name:"KOSPI"}:normalized;
-  }):[];
-  const stocks=[...new Map(raw.filter(item=>SYMBOL_PATTERN.test(item?.symbol)&&typeof item?.name==="string").map(item=>[item.symbol,item])).values()].slice(0,48);
-  let columns=clamp(saved?.columns,1,8,6),rows=clamp(saved?.rows,1,6,3),items=stocks.length?stocks:structuredClone(defaults);
-  while(columns*rows<items.length&&rows<6)rows++;
-  while(columns*rows<items.length&&columns<8)columns++;
-  return{stocks:items,columns,rows};
-}
 function repairLegacyMarketProfile(savedMarket,schemaVersion){
   if(!savedMarket)return savedMarket;
   let stocks=Array.isArray(savedMarket.stocks)?savedMarket.stocks.map(item=>schemaVersion<5&&item.symbol==="518880.SS"?structuredClone(DEFAULT_MARKET_STOCKS.find(stock=>stock.symbol==="AU9999")):{...item}):[];

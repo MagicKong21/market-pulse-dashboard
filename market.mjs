@@ -504,7 +504,10 @@ export function normalizeEastmoneyGlobal(payload,instrument,periodKey,now=Date.n
 }
 
 export function normalizeEastmoneyBreadth(payload){
-  const row=payload?.data?.diff?.[0];
+  return normalizeEastmoneyBreadthRow(payload?.data?.diff?.[0]);
+}
+
+export function normalizeEastmoneyBreadthRow(row){
   const up=Number(row?.f104),down=Number(row?.f105),flat=Number(row?.f106);
   if(![up,down,flat].every(Number.isFinite)||up<0||down<0||flat<0)return null;
   const total=up+down+flat;

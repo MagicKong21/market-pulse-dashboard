@@ -2,7 +2,7 @@ import http from "node:http";
 import { readFile, mkdir, writeFile } from "node:fs/promises";
 import { dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { INSTRUMENTS, PERIODS, isPeriod, mergeLatestQuote, mergeProvisionalIntraday, mergeSyntheticDxy, normalizeEastmoneyA50Daily, normalizeEastmoneyA50Intraday, normalizeEastmoneyAuDaily, normalizeEastmoneyAuIntraday, normalizeEastmoneyBreadth, normalizeEastmoneyGlobal, normalizeEastmoneyTwii, normalizeSinaA50Daily, normalizeSinaA50Minute, normalizeSinaAuHistory, normalizeSinaGlobalFutureLatest, normalizeSinaUsKline, normalizeSymbolInput, normalizeTencentKline, normalizeTencentMinute, normalizeThsIndustryLine, normalizeThsIndustryMinute, normalizeTwseIndexHistory, normalizeYahooChart, normalizeYahooQuotes, resolveInstruments, sortByMarketCapUsd } from "./market.mjs";
+import { INSTRUMENTS, PERIODS, isPeriod, mergeLatestQuote, mergeProvisionalIntraday, mergeSyntheticDxy, normalizeEastmoneyA50Daily, normalizeEastmoneyA50Intraday, normalizeEastmoneyAuDaily, normalizeEastmoneyAuIntraday, normalizeEastmoneyBreadthRow, normalizeEastmoneyGlobal, normalizeEastmoneyTwii, normalizeSinaA50Daily, normalizeSinaA50Minute, normalizeSinaAuHistory, normalizeSinaGlobalFutureLatest, normalizeSinaUsKline, normalizeSymbolInput, normalizeTencentKline, normalizeTencentMinute, normalizeThsIndustryLine, normalizeThsIndustryMinute, normalizeTwseIndexHistory, normalizeYahooChart, normalizeYahooQuotes, resolveInstruments, sortByMarketCapUsd } from "./market.mjs";
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const PUBLIC = join(ROOT, "public");
@@ -291,20 +291,26 @@ const EASTMONEY_BREADTH_SECIDS=Object.freeze({
   "000688.SS":"1.000688",
   "399006.SZ":"0.399006"
 });
-async function fetchMarketBreadth(instruments,force=false){
+async function fetchMarketBreadth(instruments){
   const selected=instruments.filter(item=>EASTMONEY_BREADTH_SECIDS[item.symbol]);
   if(!selected.length)return new Map();
-  const results=await mapConcurrent(selected,4,async instrument=>{
-    const secid=EASTMONEY_BREADTH_SECIDS[instrument.symbol];
-    const query=`/api/qt/ulist.np/get?fltt=2&secids=${secid}&fields=f12,f104,f105,f106`;
-    let lastError;
-    for(const host of ["push2his.eastmoney.com","push2.eastmoney.com"]){
-      try{return [instrument.symbol,normalizeEastmoneyBreadth(await fetchJson(`https://${host}${query}`,12_000))];}
-      catch(error){lastError=error;}
-    }
-    throw lastError||new Error("东方财富涨跌家数不可用");
-  });
-  return new Map(results.filter(result=>result.ok&&result.data?.[1]).map(result=>result.data));
+  const secidToSymbol=new Map(selected.map(item=>[EASTMONEY_BREADTH_SECIDS[item.symbol],item.symbol]));
+  const codeToSymbol=new Map([...secidToSymbol].map(([secid,symbol])=>[secid.split(".")[1],symbol]));
+  const query=`/api/qt/ulist.np/get?fltt=2&secids=${[...secidToSymbol.keys()].join(",")}&fields=f12,f104,f105,f106`;
+  let lastError;
+  for(const host of ["push2his.eastmoney.com","push2.eastmoney.com"]){
+    try{
+      const payload=await fetchJson(`https://${host}${query}`,12_000);
+      const output=new Map();
+      for(const row of payload?.data?.diff||[]){
+        const symbol=codeToSymbol.get(String(row?.f12));
+        const breadth=normalizeEastmoneyBreadthRow(row);
+        if(symbol&&breadth)output.set(symbol,breadth);
+      }
+      return output;
+    }catch(error){lastError=error;}
+  }
+  throw lastError||new Error("东方财富涨跌家数不可用");
 }
 
 function canUseSinaUs(instrument){
@@ -449,7 +455,7 @@ async function mapConcurrent(items, limit, worker) {
 async function dashboard(periodKey, force = false, instruments = INSTRUMENTS, page = 0, pageSize = instruments.length, sortByCap = true, maxAge = PERIODS[periodKey].ttl) {
   const startedAt = Date.now();
   const marketCaps = sortByCap?await fetchMarketCaps(instruments,force):new Map(instruments.map(item=>[item.symbol,{marketCap:null,marketCapCurrency:null,marketCapUsd:null,marketCapCny:null,marketCapStatus:"not_applicable"}]));
-  const marketBreadth = await fetchMarketBreadth(instruments,force).catch(()=>new Map());
+  const marketBreadth = await fetchMarketBreadth(instruments).catch(()=>new Map());
   const sorted = sortByCap?sortByMarketCapUsd(instruments,marketCaps):instruments.map(item=>({item,cap:marketCaps.get(item.symbol)}));
   const selected = sorted.slice(page * pageSize, (page + 1) * pageSize);
   const results = await mapConcurrent(selected, 4, entry => fetchInstrument(entry.item, periodKey, force, maxAge));

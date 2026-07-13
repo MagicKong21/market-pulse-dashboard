@@ -35,7 +35,8 @@ function serveEmbeddedAsset(pathname) {
   if (!encoded) return null;
   const extension = path.includes(".") ? path.slice(path.lastIndexOf(".")) : "";
   const bytes = Uint8Array.from(atob(encoded), character => character.charCodeAt(0));
-  return new Response(bytes, { headers: { "content-type": staticMime[extension] || "application/octet-stream", "cache-control": path === "/index.html" ? "no-cache" : "public, max-age=300" } });
+  // 文件名未带构建哈希；脚本与样式必须每次校验，避免发布后仍运行旧的页面逻辑。
+  return new Response(bytes, { headers: { "content-type": staticMime[extension] || "application/octet-stream", "cache-control": [".html", ".js", ".css"].includes(extension) ? "no-cache" : "public, max-age=300" } });
 }
 const workerJsonHeaders = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" };
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: workerJsonHeaders });
