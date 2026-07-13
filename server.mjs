@@ -2,7 +2,7 @@ import http from "node:http";
 import { readFile, mkdir, writeFile } from "node:fs/promises";
 import { dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { INSTRUMENTS, PERIODS, isPeriod, mergeLatestQuote, mergeProvisionalIntraday, mergeSyntheticDxy, normalizeEastmoneyA50Daily, normalizeEastmoneyA50Intraday, normalizeEastmoneyAuDaily, normalizeEastmoneyAuIntraday, normalizeEastmoneyTwii, normalizeSinaA50Daily, normalizeSinaA50Minute, normalizeSinaAuHistory, normalizeSinaGlobalFutureLatest, normalizeSinaUsKline, normalizeSymbolInput, normalizeTencentKline, normalizeTencentMinute, normalizeThsIndustryLine, normalizeThsIndustryMinute, normalizeTwseIndexHistory, normalizeYahooChart, normalizeYahooQuotes, resolveInstruments, sortByMarketCapUsd } from "./market.mjs";
+import { INSTRUMENTS, PERIODS, isPeriod, mergeLatestQuote, mergeProvisionalIntraday, mergeSyntheticDxy, normalizeEastmoneyA50Daily, normalizeEastmoneyA50Intraday, normalizeEastmoneyAuDaily, normalizeEastmoneyAuIntraday, normalizeEastmoneyGlobal, normalizeEastmoneyTwii, normalizeSinaA50Daily, normalizeSinaA50Minute, normalizeSinaAuHistory, normalizeSinaGlobalFutureLatest, normalizeSinaUsKline, normalizeSymbolInput, normalizeTencentKline, normalizeTencentMinute, normalizeThsIndustryLine, normalizeThsIndustryMinute, normalizeTwseIndexHistory, normalizeYahooChart, normalizeYahooQuotes, resolveInstruments, sortByMarketCapUsd } from "./market.mjs";
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const PUBLIC = join(ROOT, "public");
@@ -277,6 +277,14 @@ async function fetchEastmoneyTwii(instrument,periodKey){
   return normalizeEastmoneyTwii(await fetchJson(url,18_000),instrument,periodKey);
 }
 
+async function fetchEastmoneyGlobal(instrument,periodKey){
+  const secids={"^KS11":"100.KS11","^N225":"100.N225","005930.KS":"177.005930","000660.KS":"177.000660"};
+  const secid=secids[instrument.symbol];if(!secid)throw new Error("东方财富未配置该标的");
+  const klt=periodKey==="5d"?30:periodKey==="1d"?5:101,lmt=periodKey==="3y"?1000:periodKey==="1y"?500:400;
+  const url=`https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fqt=0&end=20500101&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=${klt}&lmt=${lmt}`;
+  return normalizeEastmoneyGlobal(await fetchJson(url,18_000),instrument,periodKey);
+}
+
 function canUseSinaUs(instrument){
   return["NASDAQ","NYSE","NasdaqGS","NasdaqGM","NasdaqCM"].includes(instrument.market)&&/^[A-Z][A-Z0-9.-]*$/.test(instrument.symbol);
 }
@@ -359,6 +367,12 @@ async function fetchInstrument(instrument, periodKey, force = false, maxAge = PE
       persistCache();
       return { ...data, cache: "live" };
     } catch (error) { lastError = error; }
+  }
+
+  // 东方财富作为日韩行情备用源；若 Yahoo 可用，优先采用更新时间更稳定的 Yahoo 响应。
+  if(["^KS11","^N225","005930.KS","000660.KS"].includes(instrument.symbol)){
+    try{return rememberInstrument(key,await fetchEastmoneyGlobal(instrument,periodKey));}
+    catch(error){lastError=error;}
   }
 
   if(instrument.symbol==="^TWII"){

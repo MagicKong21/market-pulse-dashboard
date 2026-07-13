@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { INSTRUMENTS, inferSymbolMarket, isPeriod, isTradableIntradayTimestamp, mergeLatestQuote, mergeProvisionalIntraday, mergeSyntheticDxy, normalizeEastmoneyA50Daily, normalizeEastmoneyA50Intraday, normalizeEastmoneyAuDaily, normalizeEastmoneyAuIntraday, normalizeEastmoneyTwii, normalizeSinaA50Daily, normalizeSinaA50Minute, normalizeSinaAuHistory, normalizeSinaGlobalFutureLatest, normalizeSinaUsKline, normalizeSymbolInput, normalizeTencentKline, normalizeTencentMinute, normalizeThsIndustryLine, normalizeThsIndustryMinute, normalizeTwseIndexHistory, normalizeYahooChart, normalizeYahooQuotes, resolveInstruments, sanitizeIntradayPoints, sortByMarketCapUsd } from "../market.mjs";
+import { INSTRUMENTS, inferSymbolMarket, isPeriod, isTradableIntradayTimestamp, mergeLatestQuote, mergeProvisionalIntraday, mergeSyntheticDxy, normalizeEastmoneyA50Daily, normalizeEastmoneyA50Intraday, normalizeEastmoneyAuDaily, normalizeEastmoneyAuIntraday, normalizeEastmoneyGlobal, normalizeEastmoneyTwii, normalizeSinaA50Daily, normalizeSinaA50Minute, normalizeSinaAuHistory, normalizeSinaGlobalFutureLatest, normalizeSinaUsKline, normalizeSymbolInput, normalizeTencentKline, normalizeTencentMinute, normalizeThsIndustryLine, normalizeThsIndustryMinute, normalizeTwseIndexHistory, normalizeYahooChart, normalizeYahooQuotes, resolveInstruments, sanitizeIntradayPoints, sortByMarketCapUsd } from "../market.mjs";
 
 const fixture = { chart: { result: [{ meta: { currency: "USD", chartPreviousClose: 90, exchangeTimezoneName: "America/New_York", currentTradingPeriod: { regular: { start: 100, end: 110 } }, tradingPeriods: [[{ start: 1, end: 10 }]] }, timestamp: [3, 1, 2, 4], indicators: { quote: [{ close: [110, 100, null, 120] }] } }] } };
 
@@ -40,6 +40,13 @@ test("标准化会过滤空点、排序，并用前收计算当日涨跌", () =>
   assert.equal(result.previousClose, 90);
   assert.ok(Math.abs(result.changePercent - 100 / 3) < 1e-10);
   assert.deepEqual(result.session, { start: 1000, end: 10000 });
+});
+
+test("Yahoo 盘中不会显示未来 K 线时间",()=>{
+  const now=Date.parse("2026-07-02T01:59:00Z"),past=Date.parse("2026-07-02T01:50:00Z"),last=Date.parse("2026-07-02T01:55:00Z"),future=Date.parse("2026-07-02T02:00:00Z");
+  const payload={chart:{result:[{meta:{currency:"CNY",exchangeTimezoneName:"Asia/Shanghai",chartPreviousClose:100},timestamp:[past/1000,last/1000,future/1000],indicators:{quote:[{close:[100,101,102]}]}}]}};
+  const result=normalizeYahooChart(payload,{symbol:"000001.SS",name:"上证指数",market:"SSE"},"1d",now);
+  assert.equal(result.points.at(-1)[0],last);assert.ok(result.asOf<=now);
 });
 
 test("未开盘时使用包含行情点的上一交易日，而非即将开盘时段", () => {
@@ -152,6 +159,12 @@ test("Yahoo 近五日用同响应最新报价补上滞后的分钟柱",()=>{
   const payload={chart:{result:[{meta:{currency:"USD",exchangeTimezoneName:"America/New_York",chartPreviousClose:4050,regularMarketTime:quoteTime,regularMarketPrice:4194.6},timestamp:timestamps,indicators:{quote:[{close:closes}]}}]}};
   const result=normalizeYahooChart(payload,{symbol:"GC=F",name:"国际黄金",market:"COMEX"},"5d");
   assert.equal(result.asOf,quoteTime*1000);assert.equal(result.price,4194.6);assert.equal(result.points.at(-1)[1],4194.6);
+});
+
+test("东方财富日韩分时解析并拒绝未来时间",()=>{
+  const now=Date.parse("2026-07-13T03:00:00Z"),payload={data:{preKPrice:7000,klines:["2026-07-13 11:55,7001,7002,7003,7000,10","2026-07-13 12:00,7002,7004,7005,7001,10","2026-07-13 12:05,7004,7006,7007,7003,10"]}};
+  const result=normalizeEastmoneyGlobal(payload,{symbol:"^KS11",name:"KOSPI",market:"KRX"},"1d",now);
+  assert.equal(result.source,"东方财富KOSPI分时备用");assert.equal(result.points.at(-1)[0],Date.parse("2026-07-13T03:00:00Z"));assert.ok(result.asOf<=now);
 });
 
 test("Yahoo 收盘后报价心跳的时间不得超过交易时段终点",()=>{

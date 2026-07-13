@@ -143,11 +143,11 @@ export function normalizeYahooChart(payload, instrument, periodKey, now=Date.now
     if (!Number.isFinite(time) || !Number.isFinite(value) || value <= 0) continue;
     rawPoints.push([time,value,volumes[index]]);
   }
-  if(isIntradayPeriod)rawPoints=sanitizeIntradayPoints(rawPoints,instrument.market,exchangeTimezone);
+  if(isIntradayPeriod)rawPoints=sanitizeIntradayPoints(rawPoints,instrument.market,exchangeTimezone).filter(([time])=>time<=now);
   let points=rawPoints.map(([time,value])=>[time,value]).sort((a,b)=>a[0]-b[0]);
   if (points.length < 2) throw new Error("有效价格点不足");
 
-  const quoteTime=Number(meta.regularMarketTime)*1000,quotePrice=Number(meta.regularMarketPrice),regularSession=meta.currentTradingPeriod?.regular,regularStart=Number(regularSession?.start)*1000,regularEnd=Number(regularSession?.end)*1000;
+  const quoteTime=Number(meta.regularMarketTime)*1000,observedQuoteTime=Number.isFinite(quoteTime)?Math.min(quoteTime,now):quoteTime,quotePrice=Number(meta.regularMarketPrice),regularSession=meta.currentTradingPeriod?.regular,regularStart=Number(regularSession?.start)*1000,regularEnd=Number(regularSession?.end)*1000;
   let visiblePreviousClose=null,intradayObservationTime=null;
   if(periodKey==="3y"){
     const cutoff=new Date(points.at(-1)[0]);cutoff.setUTCFullYear(cutoff.getUTCFullYear()-3);
@@ -167,9 +167,9 @@ export function normalizeYahooChart(payload, instrument, periodKey, now=Date.now
     }
     // Yahoo 的多日分钟柱有时会停在数小时前，但同一响应的 meta 已有更新的实时报价。
     // 用同源最新报价补尾，避免把“柱周期延迟”误显示成整体行情延迟。
-    if(Number.isFinite(quoteTime)&&Number.isFinite(quotePrice)&&quoteTime>points.at(-1)[0]&&quotePrice>0){
-      let observationTime=clampToLastTradingTime(quoteTime,instrument.market,exchangeTimezone);
-      if(Number.isFinite(regularEnd)&&quoteTime>=regularEnd)observationTime=Math.min(observationTime,regularEnd);
+    if(Number.isFinite(observedQuoteTime)&&Number.isFinite(quotePrice)&&observedQuoteTime>points.at(-1)[0]&&quotePrice>0){
+      let observationTime=clampToLastTradingTime(observedQuoteTime,instrument.market,exchangeTimezone);
+      if(Number.isFinite(regularEnd)&&observedQuoteTime>=regularEnd)observationTime=Math.min(observationTime,regularEnd);
       if(observationTime>points.at(-1)[0])points.push([observationTime,quotePrice]);
       else if(observationTime===points.at(-1)[0])points[points.length-1][1]=quotePrice;
       intradayObservationTime=Math.max(points.at(-1)[0],observationTime);
@@ -183,14 +183,14 @@ export function normalizeYahooChart(payload, instrument, periodKey, now=Date.now
   };
   const officialLastPoint = points.at(-1);
   const shouldAppendQuote = isDailyPeriod
-    && Number.isFinite(quoteTime) && Number.isFinite(quotePrice) && quoteTime > officialLastPoint[0] && quotePrice > 0
-    && tradingDate(quoteTime) !== tradingDate(officialLastPoint[0]);
+    && Number.isFinite(observedQuoteTime) && Number.isFinite(quotePrice) && observedQuoteTime > officialLastPoint[0] && quotePrice > 0
+    && tradingDate(observedQuoteTime) !== tradingDate(officialLastPoint[0]);
   const isInProgressDaily = isDailyPeriod && !shouldAppendQuote
-    && Number.isFinite(quoteTime) && Number.isFinite(regularStart) && Number.isFinite(regularEnd)
-    && quoteTime >= regularStart && quoteTime < regularEnd
+    && Number.isFinite(observedQuoteTime) && Number.isFinite(regularStart) && Number.isFinite(regularEnd)
+    && observedQuoteTime >= regularStart && observedQuoteTime < regularEnd
     && now >= regularStart && now < regularEnd
-    && tradingDate(quoteTime) === tradingDate(officialLastPoint[0]);
-  const observationTime = isInProgressDaily || shouldAppendQuote ? clampToLastTradingTime(quoteTime,instrument.market,exchangeTimezone) : quoteTime;
+    && tradingDate(observedQuoteTime) === tradingDate(officialLastPoint[0]);
+  const observationTime = isInProgressDaily || shouldAppendQuote ? clampToLastTradingTime(observedQuoteTime,instrument.market,exchangeTimezone) : Math.min(points.at(-1)[0],now);
   const provisionalPoint = shouldAppendQuote
     ? { time:observationTime, value:quotePrice, source:"Yahoo 最新报价", kind:"supplemented" }
     : isInProgressDaily ? { time:observationTime, value:officialLastPoint[1], source:"Yahoo 盘中日 K", kind:"in_progress" } : null;
@@ -484,6 +484,23 @@ export function normalizeEastmoneyTwii(payload,instrument,periodKey){
   if(visible.length<2)throw new Error("东方财富台湾加权分时有效价格点不足");
   const reportedPrevious=Number(payload?.data?.preKPrice),baseline=reportedPrevious>0?reportedPrevious:visible[0][1],last=visible.at(-1);
   return{symbol:instrument.symbol,name:instrument.name,market:"TWSE",currency:"TWD",exchangeTimezone:"Asia/Taipei",price:last[1],previousClose:baseline,change:last[1]-baseline,changePercent:(last[1]-baseline)/baseline*100,asOf:last[0],resolution:"5m",provisionalLatest:false,provisionalPoint:null,source:"东方财富台湾加权分时备用",session:null,points:visible};
+}
+
+export function normalizeEastmoneyGlobal(payload,instrument,periodKey,now=Date.now()){
+  const rows=eastmoneyRows(payload),timeZone=instrument.market==="KRX"?"Asia/Seoul":"Asia/Tokyo",currency=instrument.market==="KRX"?"KRW":"JPY",closeClock="15:30";
+  const points=rows.map(raw=>{const fields=String(raw).split(","),stamp=fields[0],close=Number(fields[2]),volume=Number(fields[5]);
+    if(stamp.includes(" ")){const[date,time]=stamp.split(" ");return[zonedTimestamp(date,time,timeZone),close,volume];}
+    return[zonedTimestamp(stamp,closeClock,timeZone),close,volume];
+  }).filter(([time,value])=>Number.isFinite(time)&&Number.isFinite(value)&&value>0).sort((a,b)=>a[0]-b[0]);
+  const intraday=rows.some(raw=>String(raw).includes(" "));
+  if(!intraday)return normalizeDailyFallback(points.map(([time,value])=>[time,value]),instrument,periodKey,{source:`东方财富${instrument.name}日线备用`,currency,timeZone});
+  const clean=sanitizeIntradayPoints(points,instrument.market,timeZone).filter(([time])=>time<=now);
+  if(clean.length<2)throw new Error(`东方财富${instrument.name}有效分时点不足`);
+  const dateKey=value=>new Intl.DateTimeFormat("en-CA",{timeZone,year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date(value));
+  const sessions=[...new Set(clean.map(([time])=>dateKey(time)))],keep=periodKey==="5d"?5:1,selected=new Set(sessions.slice(-keep)),visible=clean.filter(([time])=>selected.has(dateKey(time))).map(([time,value])=>[time,value]);
+  if(visible.length<2)throw new Error(`东方财富${instrument.name}可见分时点不足`);
+  const firstIndex=clean.findIndex(([time])=>time===visible[0][0]),reportedPrevious=Number(payload?.data?.preKPrice),previousClose=periodKey==="1d"&&reportedPrevious>0?reportedPrevious:(clean[firstIndex-1]?.[1]||visible[0][1]),last=visible.at(-1),baseline=periodKey==="1d"?previousClose:visible[0][1],day=dateKey(last[0]);
+  return{symbol:instrument.symbol,name:instrument.name,market:instrument.market,currency,exchangeTimezone:timeZone,price:last[1],previousClose,change:last[1]-baseline,changePercent:(last[1]-baseline)/baseline*100,asOf:last[0],resolution:periodKey==="5d"?"30m":"5m",provisionalLatest:last[0]>=now-90_000,provisionalPoint:null,source:`东方财富${instrument.name}分时备用`,session:periodKey==="1d"?{start:zonedTimestamp(day,"09:00",timeZone),end:zonedTimestamp(day,closeClock,timeZone)}:null,points:visible};
 }
 
 export function normalizeTencentMinute(payload, instrument) {
