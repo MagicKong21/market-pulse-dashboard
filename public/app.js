@@ -196,6 +196,22 @@ function card(item){
   return`<article class="card">${item.cache==="stale"?`<span class="stale" title="${esc(item.warning)}">缓存</span>`:""}<div class="card-head"><div><div class="name">${esc(item.name)}</div><div class="ticker">${tickerLine(item)}</div></div>${marketCapBadge(item)}</div><div class="quote"><div class="price">${formatPrice(item.price,item.currency)}</div><div class="change ${tone}">${prefix}${item.changePercent.toFixed(2)}%</div></div><div class="chart">${makeChart(item.points,direction,chartSession,item.previousClose,period,timeZone,item.market,inProgress)}</div><div class="range"><span>${rangeTimeLabel(rangeStart)}</span>${progressLabel}<span>${rangeTimeLabel(rangeEnd)}</span></div></article>`;
 }
 function showSkeletons(count){grid.innerHTML=Array.from({length:count},()=>`<article class="card skeleton"><div>加载</div></article>`).join("");}
+const BREADTH_SECIDS={"000001.SS":"1.000001","399001.SZ":"0.399001","000688.SS":"1.000688","399006.SZ":"0.399006"};
+async function fillMissingIndexBreadth(instruments){
+  const missing=instruments.filter(item=>BREADTH_SECIDS[item.symbol]&&!Number.isFinite(item.breadthUpPercent));
+  if(!missing.length)return instruments;
+  try{
+    const secids=missing.map(item=>BREADTH_SECIDS[item.symbol]).join(",");
+    const response=await fetch(`https://push2his.eastmoney.com/api/qt/ulist.np/get?fltt=2&secids=${encodeURIComponent(secids)}&fields=f12,f104,f105,f106`,{cache:"no-store"});
+    const rows=(await response.json())?.data?.diff||[];
+    const byCode=new Map(rows.map(row=>[String(row.f12),row]));
+    return instruments.map(item=>{
+      const row=byCode.get(BREADTH_SECIDS[item.symbol]?.split(".")[1]);
+      const up=Number(row?.f104),down=Number(row?.f105),flat=Number(row?.f106),total=up+down+flat;
+      return Number.isFinite(up)&&Number.isFinite(down)&&Number.isFinite(flat)&&total>0?{...item,breadthUp:up,breadthDown:down,breadthFlat:flat,breadthUpPercent:up/total*100}:item;
+    });
+  }catch{return instruments;}
+}
 async function load({skeleton=true,force=false}={}){
   const id=++requestId;refresh.disabled=true;if(skeleton)showSkeletons(preferences.stocks.length);status.innerHTML=`<i class="pulse"></i> 正在更新 ${buttons.find(button=>button.dataset.period===period)?.textContent}行情…`;
   try{
@@ -203,6 +219,7 @@ async function load({skeleton=true,force=false}={}){
     const response=await fetch(`/api/market?${params}`,{cache:"no-store"});if(!response.ok){const body=await response.json().catch(()=>({}));throw new Error(body.error||`服务器返回 ${response.status}`);}
     const payload=await response.json();if(id!==requestId)return;const config=new Map(preferences.stocks.map(item=>[item.symbol,item]));
     let instruments=payload.instruments.map(item=>{const own=config.get(item.symbol);return{...item,name:own?.name||item.name,assetType:own?.assetType,market:item.market==="CUSTOM"?(own?.market||item.market):item.market};});
+    if(currentUniverse==="focus")instruments=await fillMissingIndexBreadth(instruments);
     if(["market","focus"].includes(currentUniverse)){const order=new Map(preferences.stocks.map((item,index)=>[item.symbol,index]));instruments=instruments.sort((a,b)=>order.get(a.symbol)-order.get(b.symbol));}
     displayOrder=instruments.map(item=>item.symbol);grid.innerHTML=instruments.map(card).join("");
     const good=instruments.filter(item=>item.status==="ok").length,stale=instruments.filter(item=>item.cache==="stale").length;
