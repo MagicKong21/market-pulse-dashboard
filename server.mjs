@@ -296,8 +296,13 @@ async function fetchMarketBreadth(instruments,force=false){
   if(!selected.length)return new Map();
   const results=await mapConcurrent(selected,4,async instrument=>{
     const secid=EASTMONEY_BREADTH_SECIDS[instrument.symbol];
-    const url=`https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&secids=${secid}&fields=f12,f104,f105,f106`;
-    return [instrument.symbol,normalizeEastmoneyBreadth(await fetchJson(url,12_000))];
+    const query=`/api/qt/ulist.np/get?fltt=2&secids=${secid}&fields=f12,f104,f105,f106`;
+    let lastError;
+    for(const host of ["push2his.eastmoney.com","push2.eastmoney.com"]){
+      try{return [instrument.symbol,normalizeEastmoneyBreadth(await fetchJson(`https://${host}${query}`,12_000))];}
+      catch(error){lastError=error;}
+    }
+    throw lastError||new Error("东方财富涨跌家数不可用");
   });
   return new Map(results.filter(result=>result.ok&&result.data?.[1]).map(result=>result.data));
 }
