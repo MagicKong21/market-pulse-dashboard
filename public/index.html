@@ -24,7 +24,7 @@
         <div class="brand-heading">
           <h1>MARKET PULSE</h1>
           <div class="brand-meta">
-            <span>版本号：<span id="appVersion">0.0.8</span></span>
+            <span>版本号：<span id="appVersion">0.0.9</span></span>
             <span>公众号：MagicKong</span>
           </div>
         </div>
@@ -36,6 +36,7 @@
         <button type="button" data-universe="global">海外</button>
         <button type="button" data-universe="china" class="active" aria-pressed="true">国内</button>
         <button type="button" data-universe="market">大盘</button>
+        <button type="button" data-universe="focus">重点</button>
       </div>
       <div class="periods time-switch" role="group" aria-label="走势周期">
         <span class="switch-kind" aria-hidden="true">周期</span>
@@ -53,7 +54,7 @@
     <script>
       (()=>{
         let universe="china",period="1d";
-        try{const saved=JSON.parse(localStorage.getItem("market-pulse-settings-v3"));if(["global","china","market"].includes(saved?.activeUniverse))universe=saved.activeUniverse;if(["1d","5d","1mo","6mo","1y","3y"].includes(saved?.activePeriod))period=saved.activePeriod;}catch{/* 使用国内 + 当日默认值 */}
+        try{const saved=JSON.parse(localStorage.getItem("market-pulse-settings-v3"));if(["global","china","market","focus"].includes(saved?.activeUniverse))universe=saved.activeUniverse;if(["1d","5d","1mo","6mo","1y","3y"].includes(saved?.activePeriod))period=saved.activePeriod;}catch{/* 使用国内 + 当日默认值 */}
         document.querySelectorAll("[data-universe]").forEach(button=>{const active=button.dataset.universe===universe;button.classList.toggle("active",active);button.setAttribute("aria-pressed",active);});
         document.querySelectorAll("[data-period]").forEach(button=>{const active=button.dataset.period===period;button.classList.toggle("active",active);button.setAttribute("aria-pressed",active);});
       })();
@@ -63,7 +64,7 @@
   <aside id="updateNotice" class="update-notice" role="status" aria-labelledby="updateNoticeTitle" hidden>
     <div class="update-notice-copy">
       <strong id="updateNoticeTitle">发现新版本</strong>
-      <span>当前版本是：<b id="currentVersion">0.0.8</b></span>
+      <span>当前版本是：<b id="currentVersion">0.0.9</b></span>
       <span>最新版本是：<b id="latestVersion">—</b></span>
     </div>
     <div class="update-notice-actions">

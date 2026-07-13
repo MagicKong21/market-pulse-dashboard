@@ -18,7 +18,11 @@ const DEFAULT_MARKET_STOCKS = [
   ["^KS11","KOSPI","KRX","指数"],["^N225","日经 225","TSE","指数"],["HSTECH.HK","恒生科技","HKEX","指数"],["^TWII","台湾加权","TWSE","指数"],["GC=F","国际黄金","COMEX","期货"],["AU9999","黄金9999","SGE","现货黄金"],
   ["CN00Y","富时中国 A50 期货","SGX","股指期货"],["000001.SS","上证指数","SSE","指数"],["399001.SZ","深证成指","SZSE","指数"],["000688.SS","科创 50","SSE","指数"],["399006.SZ","创业板","SZSE","指数"],["BTC-USD","比特币","CRYPTO","加密资产"]
 ].map(([symbol,name,market,assetType])=>({symbol,name,market,assetType}));
-const STORAGE_KEY=IS_HOSTED_SITE?"market-pulse-settings-hosted-v2":"market-pulse-settings-v3",LEGACY_STORAGE_KEY="market-pulse-settings-v2",SETTINGS_VERSION=9,PERIOD_KEYS=["1d","5d","1mo","6mo","1y","3y"],SYMBOL_PATTERN=/^[A-Z0-9^.=\-]{1,20}$/;
+const DEFAULT_FOCUS_STOCKS = [
+  ["^KS11","KOSPI","KRX","指数"],["^N225","日经 225","TSE","指数"],["HSTECH.HK","恒生科技","HKEX","指数"],["CN00Y","富时中国 A50 期货","SGX","股指期货"],["000001.SS","上证指数","SSE","指数"],["399001.SZ","深证成指","SZSE","指数"],["000688.SS","科创 50","SSE","指数"],["399006.SZ","创业板","SZSE","指数"],
+  ["005930.KS","三星电子","KRX"],["000660.KS","SK 海力士","KRX"],["688981.SS","中芯国际","SSE"],["601138.SS","工业富联","SSE"],["300308.SZ","中际旭创","SZSE"],["688256.SS","寒武纪","SSE"],["2513.HK","智谱","HKEX"],["002371.SZ","北方华创","SZSE"],["603986.SS","兆易创新","SSE"],["000977.SZ","浪潮信息","SZSE"]
+].map(([symbol,name,market,assetType])=>({symbol,name,market,assetType}));
+const STORAGE_KEY=IS_HOSTED_SITE?"market-pulse-settings-hosted-v2":"market-pulse-settings-v3",LEGACY_STORAGE_KEY="market-pulse-settings-v2",SETTINGS_VERSION=10,PERIOD_KEYS=["1d","5d","1mo","6mo","1y","3y"],SYMBOL_PATTERN=/^[A-Z0-9^.=\-]{1,20}$/;
 const UPDATE_CHECK_KEY="market-pulse-update-check-v1",UPDATE_DISMISSED_KEY="market-pulse-update-dismissed-v1",UPDATE_INTERVAL=2*24*60*60*1000;
 const $=selector=>document.querySelector(selector),grid=$("#grid"),status=$("#status"),timestamp=$("#timestamp"),refresh=$("#refresh");
 const buttons=[...document.querySelectorAll("[data-period]")],universeButtons=[...document.querySelectorAll("[data-universe]")],dialog=$("#settingsDialog"),preview=$("#layoutPreview"),formError=$("#formError"),slotEditor=$("#slotEditor");
@@ -98,14 +102,14 @@ function loadDashboardState(){
       const repairedMarket=repairLegacyMarketProfile(saved.universes.market,schemaVersion);
       // 大盘配置始终以用户当前的名单与顺序为准；版本升级不得根据数量或缺少某个代码来猜测它是默认配置。
       const marketProfile=normalizeProfile(repairedMarket,DEFAULT_MARKET_STOCKS);
-      const active=["global","china","market"].includes(saved.activeUniverse)?saved.activeUniverse:"china";
+    const active=["global","china","market","focus"].includes(saved.activeUniverse)?saved.activeUniverse:"china";
       const activePeriod=PERIOD_KEYS.includes(saved.activePeriod)?saved.activePeriod:"1d";
       const autoRefreshMs=schemaVersion<9&&Number(saved.autoRefreshMs)===5_000?10_000:normalizeAutoRefreshMs(saved.autoRefreshMs);
-      return{schemaVersion:SETTINGS_VERSION,activeUniverse:active,activePeriod,autoRefreshMs,universes:{global:normalizeProfile(saved.universes.global,DEFAULT_GLOBAL_STOCKS,{legacyGlobal:schemaVersion<4}),china:chinaProfile,market:marketProfile}};
+      return{schemaVersion:SETTINGS_VERSION,activeUniverse:active,activePeriod,autoRefreshMs,universes:{global:normalizeProfile(saved.universes.global,DEFAULT_GLOBAL_STOCKS,{legacyGlobal:schemaVersion<4}),china:chinaProfile,market:marketProfile,focus:normalizeProfile(saved.universes.focus,DEFAULT_FOCUS_STOCKS)}};
     }
     const legacy=JSON.parse(localStorage.getItem(LEGACY_STORAGE_KEY));
-    return{schemaVersion:SETTINGS_VERSION,activeUniverse:"china",activePeriod:"1d",autoRefreshMs:10_000,universes:{global:normalizeProfile(legacy,DEFAULT_GLOBAL_STOCKS,{legacyGlobal:true}),china:normalizeProfile(null,DEFAULT_CHINA_STOCKS),market:normalizeProfile(null,DEFAULT_MARKET_STOCKS)}};
-  }catch{return{schemaVersion:SETTINGS_VERSION,activeUniverse:"china",activePeriod:"1d",autoRefreshMs:10_000,universes:{global:normalizeProfile(null,DEFAULT_GLOBAL_STOCKS),china:normalizeProfile(null,DEFAULT_CHINA_STOCKS),market:normalizeProfile(null,DEFAULT_MARKET_STOCKS)}};}
+    return{schemaVersion:SETTINGS_VERSION,activeUniverse:"china",activePeriod:"1d",autoRefreshMs:10_000,universes:{global:normalizeProfile(legacy,DEFAULT_GLOBAL_STOCKS,{legacyGlobal:true}),china:normalizeProfile(null,DEFAULT_CHINA_STOCKS),market:normalizeProfile(null,DEFAULT_MARKET_STOCKS),focus:normalizeProfile(null,DEFAULT_FOCUS_STOCKS)}};
+  }catch{return{schemaVersion:SETTINGS_VERSION,activeUniverse:"china",activePeriod:"1d",autoRefreshMs:10_000,universes:{global:normalizeProfile(null,DEFAULT_GLOBAL_STOCKS),china:normalizeProfile(null,DEFAULT_CHINA_STOCKS),market:normalizeProfile(null,DEFAULT_MARKET_STOCKS),focus:normalizeProfile(null,DEFAULT_FOCUS_STOCKS)}};}
 }
 const dashboardState=loadDashboardState();currentUniverse=dashboardState.activeUniverse;period=dashboardState.activePeriod;preferences=dashboardState.universes[currentUniverse];
 const capacity=()=>preferences.columns*preferences.rows;
@@ -119,14 +123,14 @@ const tickerLine=item=>{const label=formatMarket(item.market,item.symbol),mainBo
 const inferMarket=symbol=>symbol.startsWith("^")?"INDEX":symbol.endsWith(".KS")?"KRX":symbol.endsWith(".T")?"TSE":symbol.endsWith(".HK")?"HKEX":symbol.endsWith(".SS")?"SSE":symbol.endsWith(".SZ")?"SZSE":symbol.endsWith(".BJ")?"BSE":"CUSTOM";
 function updateUniverseUI(){
   universeButtons.forEach(button=>{const active=button.dataset.universe===currentUniverse;button.classList.toggle("active",active);button.setAttribute("aria-pressed",active);});
-  $("#marketCapSortNote").textContent=currentUniverse==="market"?"按关注顺序展示；所有时间统一为北京时间；所有周期压缩休市时段":currentUniverse==="china"?"按折合人民币总市值降序；所有时间统一为北京时间；所有周期压缩休市时段":"按折合美元总市值降序；所有时间统一为北京时间；所有周期压缩休市时段";
+  $("#marketCapSortNote").textContent=["market","focus"].includes(currentUniverse)?"按关注顺序展示；所有时间统一为北京时间；所有周期压缩休市时段":currentUniverse==="china"?"按折合人民币总市值降序；所有时间统一为北京时间；所有周期压缩休市时段":"按折合美元总市值降序；所有时间统一为北京时间；所有周期压缩休市时段";
   const sources=["Yahoo Finance"],symbols=new Set(preferences.stocks.map(item=>item.symbol));
   if(preferences.stocks.some(item=>/\.(SS|SZ|BJ|HK)$/.test(item.symbol)))sources.push("腾讯证券");
   if(symbols.has("AU9999")||symbols.has("CN00Y"))sources.push("东方财富");
   if(symbols.has("GC=F"))sources.push("新浪财经");
   if(symbols.has("881121.TI"))sources.push("同花顺");
   $("#dataSourceNote").textContent=`数据源：${sources.join(" · ")}`;
-  $("#reorderHint").hidden=currentUniverse!=="market";
+  $("#reorderHint").hidden=!(["market","focus"].includes(currentUniverse));
 }
 
 function setCustomSelect(id,value){
@@ -152,7 +156,7 @@ function syncStocksFromSlots(){preferences.stocks=settingsSlots.filter(Boolean);
 function renderLayoutPreview(){
   applyLayout();
   preview.innerHTML=settingsSlots.map((item,index)=>item
-    ?`<div class="layout-slot${currentUniverse==="market"?" reorderable":""}" data-slot="${index}" ${currentUniverse==="market"?`draggable="true" tabindex="0" aria-label="${esc(item.name||item.symbol)}，可拖动或用方向键排序"`:""}><span class="layout-slot-name"><strong>${esc(item.name||item.symbol)}</strong><small>${esc(item.symbol)}</small></span><span class="slot-actions"><button type="button" class="edit-slot" data-slot="${index}" aria-label="编辑 ${esc(item.name||item.symbol)}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button><button type="button" class="remove-slot" data-slot="${index}" aria-label="移除 ${esc(item.name||item.symbol)}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v5M14 11v5"/></svg></button></span></div>`
+    ?`<div class="layout-slot${["market","focus"].includes(currentUniverse)?" reorderable":""}" data-slot="${index}" ${["market","focus"].includes(currentUniverse)?`draggable="true" tabindex="0" aria-label="${esc(item.name||item.symbol)}，可拖动或用方向键排序"`:""}><span class="layout-slot-name"><strong>${esc(item.name||item.symbol)}</strong><small>${esc(item.symbol)}</small></span><span class="slot-actions"><button type="button" class="edit-slot" data-slot="${index}" aria-label="编辑 ${esc(item.name||item.symbol)}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button><button type="button" class="remove-slot" data-slot="${index}" aria-label="移除 ${esc(item.name||item.symbol)}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v5M14 11v5"/></svg></button></span></div>`
     :`<div class="layout-slot empty"><button type="button" class="add-slot" data-slot="${index}" aria-label="在第 ${index+1} 格添加股票">＋</button></div>`).join("");
 }
 
@@ -179,7 +183,7 @@ function makeChart(points,direction,session,previousClose,periodKey,timeZone,mar
 }
 function marketCapBadge(item){
   if(currentUniverse==="market")return`<span class="card-market-cap"><small>类别</small><strong>${esc(item.assetType||"市场指标")}</strong></span>`;
-  const isChina=currentUniverse==="china",value=isChina?item.marketCapCny:item.marketCapUsd,currency=isChina?"CNY":"USD";
+  const isChina=["china","focus"].includes(currentUniverse),value=isChina?item.marketCapCny:item.marketCapUsd,currency=isChina?"CNY":"USD";
   const available=Number.isFinite(value)&&value>0,text=item.marketCapStatus==="not_applicable"?"不适用":available?`${item.marketCapCurrency!==currency?"≈ ":""}${formatMarketCap(value)} ${currency}`:"暂无";
   const original=available&&item.marketCapCurrency!==currency?`原始市值 ${formatMarketCap(item.marketCap)} ${item.marketCapCurrency}`:"";
   const title=[original,item.marketCapStale?"市值为缓存数据":""].filter(Boolean).join("；");
@@ -203,11 +207,11 @@ function showSkeletons(count){grid.innerHTML=Array.from({length:count},()=>`<art
 async function load({skeleton=true,force=false}={}){
   const id=++requestId;refresh.disabled=true;if(skeleton)showSkeletons(preferences.stocks.length);status.innerHTML=`<i class="pulse"></i> 正在更新 ${buttons.find(button=>button.dataset.period===period)?.textContent}行情…`;
   try{
-    const params=new URLSearchParams({period,symbols:preferences.stocks.map(item=>item.symbol).join(","),page:"0",pageSize:String(capacity())});if(currentUniverse==="market")params.set("sort","none");if(force)params.set("force","1");else if(dashboardState.autoRefreshMs)params.set("refreshMs",String(dashboardState.autoRefreshMs));
+    const params=new URLSearchParams({period,symbols:preferences.stocks.map(item=>item.symbol).join(","),page:"0",pageSize:String(capacity())});if(["market","focus"].includes(currentUniverse))params.set("sort","none");if(force)params.set("force","1");else if(dashboardState.autoRefreshMs)params.set("refreshMs",String(dashboardState.autoRefreshMs));
     const response=await fetch(`/api/market?${params}`,{cache:"no-store"});if(!response.ok){const body=await response.json().catch(()=>({}));throw new Error(body.error||`服务器返回 ${response.status}`);}
     const payload=await response.json();if(id!==requestId)return;const config=new Map(preferences.stocks.map(item=>[item.symbol,item]));
     let instruments=payload.instruments.map(item=>{const own=config.get(item.symbol);return{...item,name:own?.name||item.name,assetType:own?.assetType,market:item.market==="CUSTOM"?(own?.market||item.market):item.market};});
-    if(currentUniverse==="market"){const order=new Map(preferences.stocks.map((item,index)=>[item.symbol,index]));instruments=instruments.sort((a,b)=>order.get(a.symbol)-order.get(b.symbol));}
+    if(["market","focus"].includes(currentUniverse)){const order=new Map(preferences.stocks.map((item,index)=>[item.symbol,index]));instruments=instruments.sort((a,b)=>order.get(a.symbol)-order.get(b.symbol));}
     displayOrder=instruments.map(item=>item.symbol);grid.innerHTML=instruments.map(card).join("");
     const good=instruments.filter(item=>item.status==="ok").length,stale=instruments.filter(item=>item.cache==="stale").length;
     status.innerHTML=`<i class="pulse"></i> ${good}/${instruments.length} 个标的已校验 · 共 ${preferences.stocks.length} 只${stale?` · ${stale} 个使用缓存`:""}`;latestUpdateMeta={generatedAt:payload.generatedAt,durationMs:payload.durationMs};
@@ -313,6 +317,6 @@ function changeLayout(){
 $("#columnCount").addEventListener("change",changeLayout);$("#rowCount").addEventListener("change",changeLayout);
 $("#autoRefreshMs").addEventListener("change",event=>{dashboardState.autoRefreshMs=normalizeAutoRefreshMs(event.target.value);persist();setCustomSelect("autoRefreshMs",dashboardState.autoRefreshMs);scheduleAutoRefresh();});
 document.addEventListener("visibilitychange",()=>{if(document.hidden){clearAutoRefreshSchedule();renderUpdateTimestamp();}else scheduleAutoRefresh();});
-$("#resetWatchlist").addEventListener("click",()=>{const defaults=currentUniverse==="china"?DEFAULT_CHINA_STOCKS:currentUniverse==="market"?DEFAULT_MARKET_STOCKS:DEFAULT_GLOBAL_STOCKS;preferences.stocks=structuredClone(defaults);preferences.columns=6;preferences.rows=3;displayOrder=[];persist();prepareSettingsSlots();renderLayoutPreview();slotEditor.hidden=true;pendingSlot=-1;editingSlot=-1;formError.textContent="已恢复默认 6 × 3 看板";load();});
+$("#resetWatchlist").addEventListener("click",()=>{const defaults=currentUniverse==="china"?DEFAULT_CHINA_STOCKS:currentUniverse==="market"?DEFAULT_MARKET_STOCKS:currentUniverse==="focus"?DEFAULT_FOCUS_STOCKS:DEFAULT_GLOBAL_STOCKS;preferences.stocks=structuredClone(defaults);preferences.columns=6;preferences.rows=3;displayOrder=[];persist();prepareSettingsSlots();renderLayoutPreview();slotEditor.hidden=true;pendingSlot=-1;editingSlot=-1;formError.textContent="已恢复默认 6 × 3 看板";load();});
 load();
 checkForUpdates();
