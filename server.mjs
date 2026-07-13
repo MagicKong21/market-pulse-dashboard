@@ -454,7 +454,8 @@ async function mapConcurrent(items, limit, worker) {
 
 async function dashboard(periodKey, force = false, instruments = INSTRUMENTS, page = 0, pageSize = instruments.length, sortByCap = true, maxAge = PERIODS[periodKey].ttl) {
   const startedAt = Date.now();
-  const marketCaps = sortByCap?await fetchMarketCaps(instruments,force):new Map(instruments.map(item=>[item.symbol,{marketCap:null,marketCapCurrency:null,marketCapUsd:null,marketCapCny:null,marketCapStatus:"not_applicable"}]));
+  // “重点”按关注顺序展示，但个股仍需返回市值，供右上角换算成人民币显示。
+  const marketCaps = await fetchMarketCaps(instruments,force);
   const marketBreadth = await fetchMarketBreadth(instruments).catch(()=>new Map());
   const sorted = sortByCap?sortByMarketCapUsd(instruments,marketCaps):instruments.map(item=>({item,cap:marketCaps.get(item.symbol)}));
   const selected = sorted.slice(page * pageSize, (page + 1) * pageSize);

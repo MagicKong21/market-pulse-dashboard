@@ -50,6 +50,19 @@ test("在线版使用独立配置版本以展示当前默认名单",async()=>{
   assert.match(app,/STORAGE_KEY=IS_HOSTED_SITE\?"market-pulse-settings-hosted-v2":"market-pulse-settings-v3"/);
 });
 
+test("首次访问默认打开重点页，已有用户的当前页不被覆盖",async()=>{
+  const app=await readFile(new URL("../public/app.js",import.meta.url),"utf8");
+  assert.match(app,/activeUniverse:"focus",activePeriod:"1d"/);
+  assert.match(app,/includes\(saved\.activeUniverse\)\?saved\.activeUniverse:"focus"/);
+});
+
+test("重点页会补齐 A50 分时和指数上涨家数",async()=>{
+  const app=await readFile(new URL("../public/app.js",import.meta.url),"utf8");
+  assert.match(app,/fillMissingA50Intraday/);
+  assert.match(app,/104\.CN00Y/);
+  assert.match(app,/fillMissingIndexBreadth/);
+});
+
 test("三个默认视图与截图中的 6 × 3 名单及顺序完全一致",async()=>{
   const app=await readFile(new URL("../public/app.js",import.meta.url),"utf8");
   const symbols=name=>{

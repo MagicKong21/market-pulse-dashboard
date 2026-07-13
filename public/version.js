@@ -1,4 +1,4 @@
-export const APP_VERSION = "0.0.15";
+export const APP_VERSION = "0.0.16";
 export const GITHUB_REPOSITORY = "MagicKong21/market-pulse-dashboard";
 export const RELEASES_URL = `https://github.com/${GITHUB_REPOSITORY}/releases`;
 export const LATEST_RELEASE_API = `https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/latest`;

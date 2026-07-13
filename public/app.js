@@ -2,6 +2,7 @@ import { chartProgressValues, chartSegmentIndexes, marketSessionForTime, rangeTi
 import { APP_VERSION, LATEST_RELEASE_API, RELEASES_URL, isNewerVersion } from "./version.js";
 import { AUTO_REFRESH_OPTIONS, autoRefreshCountdownSeconds, normalizeAutoRefreshMs } from "./auto-refresh.js";
 import { normalizeProfile, SYMBOL_PATTERN } from "./profile-utils.js";
+import { normalizeA50BrowserPayload } from "./a50-utils.js";
 
 const IS_HOSTED_SITE=!(["localhost","127.0.0.1","::1"].includes(location.hostname));
 const DEFAULT_GLOBAL_STOCKS = [
@@ -89,14 +90,14 @@ function loadDashboardState(){
       const repairedMarket=repairLegacyMarketProfile(saved.universes.market,schemaVersion);
       // 大盘配置始终以用户当前的名单与顺序为准；版本升级不得根据数量或缺少某个代码来猜测它是默认配置。
       const marketProfile=normalizeProfile(repairedMarket,DEFAULT_MARKET_STOCKS);
-    const active=["global","china","market","focus"].includes(saved.activeUniverse)?saved.activeUniverse:"china";
+    const active=["global","china","market","focus"].includes(saved.activeUniverse)?saved.activeUniverse:"focus";
       const activePeriod=PERIOD_KEYS.includes(saved.activePeriod)?saved.activePeriod:"1d";
       const autoRefreshMs=schemaVersion<9&&Number(saved.autoRefreshMs)===5_000?10_000:normalizeAutoRefreshMs(saved.autoRefreshMs);
       return{schemaVersion:SETTINGS_VERSION,activeUniverse:active,activePeriod,autoRefreshMs,universes:{global:normalizeProfile(saved.universes.global,DEFAULT_GLOBAL_STOCKS,{legacyGlobal:schemaVersion<4}),china:chinaProfile,market:marketProfile,focus:normalizeProfile(saved.universes.focus,DEFAULT_FOCUS_STOCKS)}};
     }
     const legacy=JSON.parse(localStorage.getItem(LEGACY_STORAGE_KEY));
-    return{schemaVersion:SETTINGS_VERSION,activeUniverse:"china",activePeriod:"1d",autoRefreshMs:10_000,universes:{global:normalizeProfile(legacy,DEFAULT_GLOBAL_STOCKS,{legacyGlobal:true}),china:normalizeProfile(null,DEFAULT_CHINA_STOCKS),market:normalizeProfile(null,DEFAULT_MARKET_STOCKS),focus:normalizeProfile(null,DEFAULT_FOCUS_STOCKS)}};
-  }catch{return{schemaVersion:SETTINGS_VERSION,activeUniverse:"china",activePeriod:"1d",autoRefreshMs:10_000,universes:{global:normalizeProfile(null,DEFAULT_GLOBAL_STOCKS),china:normalizeProfile(null,DEFAULT_CHINA_STOCKS),market:normalizeProfile(null,DEFAULT_MARKET_STOCKS),focus:normalizeProfile(null,DEFAULT_FOCUS_STOCKS)}};}
+    return{schemaVersion:SETTINGS_VERSION,activeUniverse:"focus",activePeriod:"1d",autoRefreshMs:10_000,universes:{global:normalizeProfile(legacy,DEFAULT_GLOBAL_STOCKS,{legacyGlobal:true}),china:normalizeProfile(null,DEFAULT_CHINA_STOCKS),market:normalizeProfile(null,DEFAULT_MARKET_STOCKS),focus:normalizeProfile(null,DEFAULT_FOCUS_STOCKS)}};
+  }catch{return{schemaVersion:SETTINGS_VERSION,activeUniverse:"focus",activePeriod:"1d",autoRefreshMs:10_000,universes:{global:normalizeProfile(null,DEFAULT_GLOBAL_STOCKS),china:normalizeProfile(null,DEFAULT_CHINA_STOCKS),market:normalizeProfile(null,DEFAULT_MARKET_STOCKS),focus:normalizeProfile(null,DEFAULT_FOCUS_STOCKS)}};}
 }
 const dashboardState=loadDashboardState();currentUniverse=dashboardState.activeUniverse;period=dashboardState.activePeriod;preferences=dashboardState.universes[currentUniverse];
 const capacity=()=>preferences.columns*preferences.rows;
@@ -197,6 +198,15 @@ function card(item){
 }
 function showSkeletons(count){grid.innerHTML=Array.from({length:count},()=>`<article class="card skeleton"><div>加载</div></article>`).join("");}
 const BREADTH_SECIDS={"000001.SS":"1.000001","399001.SZ":"0.399001","000688.SS":"1.000688","399006.SZ":"0.399006"};
+const A50_KLINE_URL="https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=104.CN00Y&fqt=0&end=20500101&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=5&lmt=2000";
+async function fillMissingA50Intraday(instruments){
+  const index=instruments.findIndex(item=>item.symbol==="CN00Y"&&item.source!=="东方财富 A50 期货");
+  if(index<0||!["1d","5d"].includes(period))return instruments;
+  try{
+    const repaired={...instruments[index],...normalizeA50BrowserPayload(await (await fetch(A50_KLINE_URL,{cache:"no-store"})).json(),period),source:"东方财富 A50 期货（浏览器直连）"};
+    return instruments.map((item,itemIndex)=>itemIndex===index?repaired:item);
+  }catch{return instruments;}
+}
 async function fillMissingIndexBreadth(instruments){
   const missing=instruments.filter(item=>BREADTH_SECIDS[item.symbol]&&!Number.isFinite(item.breadthUpPercent));
   if(!missing.length)return instruments;
@@ -220,6 +230,7 @@ async function load({skeleton=true,force=false}={}){
     const payload=await response.json();if(id!==requestId)return;const config=new Map(preferences.stocks.map(item=>[item.symbol,item]));
     let instruments=payload.instruments.map(item=>{const own=config.get(item.symbol);return{...item,name:own?.name||item.name,assetType:own?.assetType,market:item.market==="CUSTOM"?(own?.market||item.market):item.market};});
     if(currentUniverse==="focus")instruments=await fillMissingIndexBreadth(instruments);
+    instruments=await fillMissingA50Intraday(instruments);
     if(["market","focus"].includes(currentUniverse)){const order=new Map(preferences.stocks.map((item,index)=>[item.symbol,index]));instruments=instruments.sort((a,b)=>order.get(a.symbol)-order.get(b.symbol));}
     displayOrder=instruments.map(item=>item.symbol);grid.innerHTML=instruments.map(card).join("");
     const good=instruments.filter(item=>item.status==="ok").length,stale=instruments.filter(item=>item.cache==="stale").length;
