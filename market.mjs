@@ -461,6 +461,26 @@ export function normalizeSinaA50Minute(payload,instrument){
   return{symbol:instrument.symbol,name:instrument.name,market:"SGX",currency:"USD",exchangeTimezone:"Asia/Singapore",price:last[1],previousClose,change:last[1]-previousClose,changePercent:(last[1]-previousClose)/previousClose*100,asOf:last[0],resolution:"1m",provisionalLatest:false,provisionalPoint:null,source:"新浪 A50 期货分时备用",session:{start:sessionEnd-23*60*60*1000-35*60*1000,end:sessionEnd},points};
 }
 
+function normalizeBitcoinMinuteRows(rows,instrument,periodKey,source){
+  const points=rows.map(row=>[Number(row?.[0])*1000,Number(row?.[4])]).filter(([time,value])=>Number.isFinite(time)&&value>0).sort((a,b)=>a[0]-b[0]);
+  if(points.length<2)throw new Error(`${source} 比特币有效价格点不足`);
+  const range=periodKey==="5d"?5*86_400_000:86_400_000,cutoff=Date.now()-range;
+  const first=points.findIndex(([time])=>time>=cutoff),visible=points.slice(Math.max(0,first<1?0:first-1));
+  if(visible.length<2)throw new Error(`${source} 比特币可见价格点不足`);
+  const previousClose=visible[0][1],last=visible.at(-1);
+  return{symbol:instrument.symbol,name:instrument.name,market:"CRYPTO",currency:"USD",exchangeTimezone:"UTC",price:last[1],previousClose,change:last[1]-previousClose,changePercent:(last[1]-previousClose)/previousClose*100,asOf:last[0],resolution:periodKey==="5d"?"30m":"5m",provisionalLatest:false,provisionalPoint:null,source,session:null,points:visible};
+}
+
+export function normalizeCoinbaseBitcoinCandles(payload,instrument,periodKey){
+  return normalizeBitcoinMinuteRows(Array.isArray(payload)?payload:[],instrument,periodKey,"Coinbase Exchange 公开成交");
+}
+
+export function normalizeKrakenBitcoinOhlc(payload,instrument,periodKey){
+  const result=payload?.result||{},rows=Object.entries(result).find(([key])=>key!=="last")?.[1];
+  // Kraken 的数组顺序为：时间、开、高、低、收、VWAP、成交量、成交笔数。
+  return normalizeBitcoinMinuteRows(Array.isArray(rows)?rows:[],instrument,periodKey,"Kraken 公开成交");
+}
+
 export function normalizeTwseIndexHistory(payloads,instrument,periodKey){
   const points=[];
   for(const payload of Array.isArray(payloads)?payloads:[payloads]){

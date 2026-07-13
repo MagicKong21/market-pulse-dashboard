@@ -2,7 +2,7 @@ import http from "node:http";
 import { readFile, mkdir, writeFile } from "node:fs/promises";
 import { dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { INSTRUMENTS, PERIODS, isPeriod, mergeLatestQuote, mergeProvisionalIntraday, mergeSyntheticDxy, normalizeEastmoneyA50Daily, normalizeEastmoneyA50Intraday, normalizeEastmoneyAuDaily, normalizeEastmoneyAuIntraday, normalizeEastmoneyBreadthRow, normalizeEastmoneyGlobal, normalizeEastmoneyTwii, normalizeSinaA50Daily, normalizeSinaA50Minute, normalizeSinaAuHistory, normalizeSinaGlobalFutureLatest, normalizeSinaUsKline, normalizeSymbolInput, normalizeTencentKline, normalizeTencentMinute, normalizeThsIndustryLine, normalizeThsIndustryMinute, normalizeTwseIndexHistory, normalizeYahooChart, normalizeYahooQuotes, resolveInstruments, sortByMarketCapUsd } from "./market.mjs";
+import { INSTRUMENTS, PERIODS, isPeriod, mergeLatestQuote, mergeProvisionalIntraday, mergeSyntheticDxy, normalizeCoinbaseBitcoinCandles, normalizeEastmoneyA50Daily, normalizeEastmoneyA50Intraday, normalizeEastmoneyAuDaily, normalizeEastmoneyAuIntraday, normalizeEastmoneyBreadthRow, normalizeEastmoneyGlobal, normalizeEastmoneyTwii, normalizeKrakenBitcoinOhlc, normalizeSinaA50Daily, normalizeSinaA50Minute, normalizeSinaAuHistory, normalizeSinaGlobalFutureLatest, normalizeSinaUsKline, normalizeSymbolInput, normalizeTencentKline, normalizeTencentMinute, normalizeThsIndustryLine, normalizeThsIndustryMinute, normalizeTwseIndexHistory, normalizeYahooChart, normalizeYahooQuotes, resolveInstruments, sortByMarketCapUsd } from "./market.mjs";
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const PUBLIC = join(ROOT, "public");
@@ -246,6 +246,17 @@ async function fetchSinaA50(instrument,periodKey){
   return normalizeSinaA50Daily(payload,instrument,periodKey);
 }
 
+async function fetchCoinbaseBitcoin(instrument,periodKey){
+  const granularity=periodKey==="5d"?1800:300,range=periodKey==="5d"?5*86_400_000:86_400_000,end=new Date(),start=new Date(end.getTime()-range-2*granularity*1000);
+  const params=new URLSearchParams({granularity:String(granularity),start:start.toISOString(),end:end.toISOString()});
+  return normalizeCoinbaseBitcoinCandles(await fetchJson(`https://api.exchange.coinbase.com/products/BTC-USD/candles?${params}`,12_000),instrument,periodKey);
+}
+
+async function fetchKrakenBitcoin(instrument,periodKey){
+  const interval=periodKey==="5d"?30:5;
+  return normalizeKrakenBitcoinOhlc(await fetchJson(`https://api.kraken.com/0/public/OHLC?pair=XBTUSD&interval=${interval}`,12_000),instrument,periodKey);
+}
+
 async function fetchSinaUs(instrument,periodKey){
   const service=["1d","5d"].includes(periodKey)?`US_MinKService.getMinK?symbol=${encodeURIComponent(instrument.symbol)}&type=5&___qn=3`:`US_MinKService.getDailyK?symbol=${encodeURIComponent(instrument.symbol)}&___qn=3`;
   const payload=await fetchText(`https://stock.finance.sina.com.cn/usstock/api/jsonp.php/var%20_DATA=/${service}`,25_000,{referer:"https://stock.finance.sina.com.cn/"});
@@ -345,6 +356,13 @@ async function fetchInstrument(instrument, periodKey, force = false, maxAge = PE
     try{return rememberInstrument(key,await fetchEastmoneyA50(instrument,periodKey));}
     catch(error){lastError=error;}
     try{return rememberInstrument(key,await fetchSinaA50(instrument,periodKey));}
+    catch(error){lastError=error;}
+  }
+
+  if(instrument.symbol==="BTC-USD"&&["1d","5d"].includes(periodKey)){
+    try{return rememberInstrument(key,await fetchCoinbaseBitcoin(instrument,periodKey));}
+    catch(error){lastError=error;}
+    try{return rememberInstrument(key,await fetchKrakenBitcoin(instrument,periodKey));}
     catch(error){lastError=error;}
   }
 

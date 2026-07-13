@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { INSTRUMENTS, inferSymbolMarket, isPeriod, isTradableIntradayTimestamp, mergeLatestQuote, mergeProvisionalIntraday, mergeSyntheticDxy, normalizeEastmoneyA50Daily, normalizeEastmoneyA50Intraday, normalizeEastmoneyAuDaily, normalizeEastmoneyAuIntraday, normalizeEastmoneyBreadth, normalizeEastmoneyBreadthRow, normalizeEastmoneyGlobal, normalizeEastmoneyTwii, normalizeSinaA50Daily, normalizeSinaA50Minute, normalizeSinaAuHistory, normalizeSinaGlobalFutureLatest, normalizeSinaUsKline, normalizeSymbolInput, normalizeTencentKline, normalizeTencentMinute, normalizeThsIndustryLine, normalizeThsIndustryMinute, normalizeTwseIndexHistory, normalizeYahooChart, normalizeYahooQuotes, resolveInstruments, sanitizeIntradayPoints, sortByMarketCapUsd } from "../market.mjs";
+import { INSTRUMENTS, inferSymbolMarket, isPeriod, isTradableIntradayTimestamp, mergeLatestQuote, mergeProvisionalIntraday, mergeSyntheticDxy, normalizeCoinbaseBitcoinCandles, normalizeEastmoneyA50Daily, normalizeEastmoneyA50Intraday, normalizeEastmoneyAuDaily, normalizeEastmoneyAuIntraday, normalizeEastmoneyBreadth, normalizeEastmoneyBreadthRow, normalizeEastmoneyGlobal, normalizeEastmoneyTwii, normalizeKrakenBitcoinOhlc, normalizeSinaA50Daily, normalizeSinaA50Minute, normalizeSinaAuHistory, normalizeSinaGlobalFutureLatest, normalizeSinaUsKline, normalizeSymbolInput, normalizeTencentKline, normalizeTencentMinute, normalizeThsIndustryLine, normalizeThsIndustryMinute, normalizeTwseIndexHistory, normalizeYahooChart, normalizeYahooQuotes, resolveInstruments, sanitizeIntradayPoints, sortByMarketCapUsd } from "../market.mjs";
 
 const fixture = { chart: { result: [{ meta: { currency: "USD", chartPreviousClose: 90, exchangeTimezoneName: "America/New_York", currentTradingPeriod: { regular: { start: 100, end: 110 } }, tradingPeriods: [[{ start: 1, end: 10 }]] }, timestamp: [3, 1, 2, 4], indicators: { quote: [{ close: [110, 100, null, 120] }] } }] } };
 
@@ -225,6 +225,14 @@ test("新浪 A50 当日备用只保留最新交易日，不能跨周末串入旧
   const result=normalizeSinaA50Minute(minute,{symbol:"CN00Y",name:"富时中国 A50 期货",market:"SGX"});
   assert.deepEqual(result.points.map(([,value])=>value),[14926,14942,14808]);
   assert.equal(result.previousClose,14939.46);
+});
+
+test("Coinbase 与 Kraken 的公开分钟成交均可作为比特币当日回退",()=>{
+  const now=Math.floor(Date.now()/1000),instrument={symbol:"BTC-USD",name:"比特币",market:"CRYPTO"};
+  const coinbase=normalizeCoinbaseBitcoinCandles([[now-600,0,0,0,62000,1],[now-300,0,0,0,62100,1],[now,0,0,0,62200,1]],instrument,"1d");
+  const kraken=normalizeKrakenBitcoinOhlc({result:{XXBTZUSD:[[now-600,"0","0","0","62000","0","1",1],[now-300,"0","0","0","62100","0","1",1],[now,"0","0","0","62200","0","1",1]],last:now}},instrument,"1d");
+  assert.equal(coinbase.price,62200);
+  assert.equal(kraken.price,62200);
 });
 
 test("台交所官方月度指数数据可作为台湾加权备用",()=>{
