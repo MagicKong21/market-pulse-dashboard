@@ -2,7 +2,7 @@ import http from "node:http";
 import { readFile, mkdir, writeFile } from "node:fs/promises";
 import { dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { INSTRUMENTS, PERIODS, isPeriod, mergeLatestQuote, mergeProvisionalIntraday, mergeSyntheticDxy, normalizeEastmoneyA50Daily, normalizeEastmoneyA50Intraday, normalizeEastmoneyAuDaily, normalizeEastmoneyAuIntraday, normalizeEastmoneyGlobal, normalizeEastmoneyTwii, normalizeSinaA50Daily, normalizeSinaA50Minute, normalizeSinaAuHistory, normalizeSinaGlobalFutureLatest, normalizeSinaUsKline, normalizeSymbolInput, normalizeTencentKline, normalizeTencentMinute, normalizeThsIndustryLine, normalizeThsIndustryMinute, normalizeTwseIndexHistory, normalizeYahooChart, normalizeYahooQuotes, resolveInstruments, sortByMarketCapUsd } from "./market.mjs";
+import { INSTRUMENTS, PERIODS, isPeriod, mergeLatestQuote, mergeProvisionalIntraday, mergeSyntheticDxy, normalizeEastmoneyA50Daily, normalizeEastmoneyA50Intraday, normalizeEastmoneyAuDaily, normalizeEastmoneyAuIntraday, normalizeEastmoneyBreadth, normalizeEastmoneyGlobal, normalizeEastmoneyTwii, normalizeSinaA50Daily, normalizeSinaA50Minute, normalizeSinaAuHistory, normalizeSinaGlobalFutureLatest, normalizeSinaUsKline, normalizeSymbolInput, normalizeTencentKline, normalizeTencentMinute, normalizeThsIndustryLine, normalizeThsIndustryMinute, normalizeTwseIndexHistory, normalizeYahooChart, normalizeYahooQuotes, resolveInstruments, sortByMarketCapUsd } from "./market.mjs";
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const PUBLIC = join(ROOT, "public");
@@ -285,6 +285,23 @@ async function fetchEastmoneyGlobal(instrument,periodKey){
   return normalizeEastmoneyGlobal(await fetchJson(url,18_000),instrument,periodKey);
 }
 
+const EASTMONEY_BREADTH_SECIDS=Object.freeze({
+  "000001.SS":"1.000001",
+  "399001.SZ":"0.399001",
+  "000688.SS":"1.000688",
+  "399006.SZ":"0.399006"
+});
+async function fetchMarketBreadth(instruments,force=false){
+  const selected=instruments.filter(item=>EASTMONEY_BREADTH_SECIDS[item.symbol]);
+  if(!selected.length)return new Map();
+  const results=await mapConcurrent(selected,4,async instrument=>{
+    const secid=EASTMONEY_BREADTH_SECIDS[instrument.symbol];
+    const url=`https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&secids=${secid}&fields=f12,f104,f105,f106`;
+    return [instrument.symbol,normalizeEastmoneyBreadth(await fetchJson(url,12_000))];
+  });
+  return new Map(results.filter(result=>result.ok&&result.data?.[1]).map(result=>result.data));
+}
+
 function canUseSinaUs(instrument){
   return["NASDAQ","NYSE","NasdaqGS","NasdaqGM","NasdaqCM"].includes(instrument.market)&&/^[A-Z][A-Z0-9.-]*$/.test(instrument.symbol);
 }
@@ -427,12 +444,13 @@ async function mapConcurrent(items, limit, worker) {
 async function dashboard(periodKey, force = false, instruments = INSTRUMENTS, page = 0, pageSize = instruments.length, sortByCap = true, maxAge = PERIODS[periodKey].ttl) {
   const startedAt = Date.now();
   const marketCaps = sortByCap?await fetchMarketCaps(instruments,force):new Map(instruments.map(item=>[item.symbol,{marketCap:null,marketCapCurrency:null,marketCapUsd:null,marketCapCny:null,marketCapStatus:"not_applicable"}]));
+  const marketBreadth = await fetchMarketBreadth(instruments,force).catch(()=>new Map());
   const sorted = sortByCap?sortByMarketCapUsd(instruments,marketCaps):instruments.map(item=>({item,cap:marketCaps.get(item.symbol)}));
   const selected = sorted.slice(page * pageSize, (page + 1) * pageSize);
   const results = await mapConcurrent(selected, 4, entry => fetchInstrument(entry.item, periodKey, force, maxAge));
   const instrumentResults = results.map((result, index) => result.ok
-    ? { status: "ok", ...result.data, ...selected[index].cap }
-    : { status: "error", ...selected[index].item, ...selected[index].cap, error: result.error });
+    ? { status: "ok", ...result.data, ...selected[index].cap, ...(marketBreadth.get(selected[index].item.symbol)||{}) }
+    : { status: "error", ...selected[index].item, ...selected[index].cap, ...(marketBreadth.get(selected[index].item.symbol)||{}), error: result.error });
   return {
     period: periodKey,
     periodLabel: PERIODS[periodKey].label,

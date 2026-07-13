@@ -503,6 +503,15 @@ export function normalizeEastmoneyGlobal(payload,instrument,periodKey,now=Date.n
   return{symbol:instrument.symbol,name:instrument.name,market:instrument.market,currency,exchangeTimezone:timeZone,price:last[1],previousClose,change:last[1]-baseline,changePercent:(last[1]-baseline)/baseline*100,asOf:last[0],resolution:periodKey==="5d"?"30m":"5m",provisionalLatest:last[0]>=now-90_000,provisionalPoint:null,source:`东方财富${instrument.name}分时备用`,session:periodKey==="1d"?{start:zonedTimestamp(day,"09:00",timeZone),end:zonedTimestamp(day,closeClock,timeZone)}:null,points:visible};
 }
 
+export function normalizeEastmoneyBreadth(payload){
+  const row=payload?.data?.diff?.[0];
+  const up=Number(row?.f104),down=Number(row?.f105),flat=Number(row?.f106);
+  if(![up,down,flat].every(Number.isFinite)||up<0||down<0||flat<0)return null;
+  const total=up+down+flat;
+  if(total<=0)return null;
+  return {breadthUp:up,breadthDown:down,breadthFlat:flat,breadthTotal:total,breadthUpPercent:up/total*100,breadthSource:"东方财富"};
+}
+
 export function normalizeTencentMinute(payload, instrument) {
   const entry = Object.values(payload?.data || {})[0];
   const date = entry?.data?.date;

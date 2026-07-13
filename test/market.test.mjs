@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { INSTRUMENTS, inferSymbolMarket, isPeriod, isTradableIntradayTimestamp, mergeLatestQuote, mergeProvisionalIntraday, mergeSyntheticDxy, normalizeEastmoneyA50Daily, normalizeEastmoneyA50Intraday, normalizeEastmoneyAuDaily, normalizeEastmoneyAuIntraday, normalizeEastmoneyGlobal, normalizeEastmoneyTwii, normalizeSinaA50Daily, normalizeSinaA50Minute, normalizeSinaAuHistory, normalizeSinaGlobalFutureLatest, normalizeSinaUsKline, normalizeSymbolInput, normalizeTencentKline, normalizeTencentMinute, normalizeThsIndustryLine, normalizeThsIndustryMinute, normalizeTwseIndexHistory, normalizeYahooChart, normalizeYahooQuotes, resolveInstruments, sanitizeIntradayPoints, sortByMarketCapUsd } from "../market.mjs";
+import { INSTRUMENTS, inferSymbolMarket, isPeriod, isTradableIntradayTimestamp, mergeLatestQuote, mergeProvisionalIntraday, mergeSyntheticDxy, normalizeEastmoneyA50Daily, normalizeEastmoneyA50Intraday, normalizeEastmoneyAuDaily, normalizeEastmoneyAuIntraday, normalizeEastmoneyBreadth, normalizeEastmoneyGlobal, normalizeEastmoneyTwii, normalizeSinaA50Daily, normalizeSinaA50Minute, normalizeSinaAuHistory, normalizeSinaGlobalFutureLatest, normalizeSinaUsKline, normalizeSymbolInput, normalizeTencentKline, normalizeTencentMinute, normalizeThsIndustryLine, normalizeThsIndustryMinute, normalizeTwseIndexHistory, normalizeYahooChart, normalizeYahooQuotes, resolveInstruments, sanitizeIntradayPoints, sortByMarketCapUsd } from "../market.mjs";
 
 const fixture = { chart: { result: [{ meta: { currency: "USD", chartPreviousClose: 90, exchangeTimezoneName: "America/New_York", currentTradingPeriod: { regular: { start: 100, end: 110 } }, tradingPeriods: [[{ start: 1, end: 10 }]] }, timestamp: [3, 1, 2, 4], indicators: { quote: [{ close: [110, 100, null, 120] }] } }] } };
 
@@ -165,6 +165,12 @@ test("东方财富日韩分时解析并拒绝未来时间",()=>{
   const now=Date.parse("2026-07-13T03:00:00Z"),payload={data:{preKPrice:7000,klines:["2026-07-13 11:55,7001,7002,7003,7000,10","2026-07-13 12:00,7002,7004,7005,7001,10","2026-07-13 12:05,7004,7006,7007,7003,10"]}};
   const result=normalizeEastmoneyGlobal(payload,{symbol:"^KS11",name:"KOSPI",market:"KRX"},"1d",now);
   assert.equal(result.source,"东方财富KOSPI分时备用");assert.equal(result.points.at(-1)[0],Date.parse("2026-07-13T03:00:00Z"));assert.ok(result.asOf<=now);
+});
+
+test("东方财富指数涨跌家数计算上涨比例",()=>{
+  const result=normalizeEastmoneyBreadth({data:{diff:[{f104:436,f105:1849,f106:23}]}});
+  assert.deepEqual(result,{breadthUp:436,breadthDown:1849,breadthFlat:23,breadthTotal:2308,breadthUpPercent:436/2308*100,breadthSource:"东方财富"});
+  assert.equal(normalizeEastmoneyBreadth({data:{diff:[{f104:0,f105:0,f106:0}]}}),null);
 });
 
 test("Yahoo 收盘后报价心跳的时间不得超过交易时段终点",()=>{

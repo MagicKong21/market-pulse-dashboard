@@ -183,6 +183,11 @@ function makeChart(points,direction,session,previousClose,periodKey,timeZone,mar
 }
 function marketCapBadge(item){
   if(currentUniverse==="market")return`<span class="card-market-cap"><small>类别</small><strong>${esc(item.assetType||"市场指标")}</strong></span>`;
+  if(item.marketCapStatus==="not_applicable"&&Number.isFinite(item.breadthUpPercent)){
+    const percent=item.breadthUpPercent.toFixed(2);
+    const title=`上涨 ${item.breadthUp} 家，平 ${item.breadthFlat} 家，下跌 ${item.breadthDown} 家`;
+    return`<span class="card-market-cap" title="${esc(title)}"><small>上涨个股</small><strong>${percent}%</strong></span>`;
+  }
   const isChina=["china","focus"].includes(currentUniverse),value=isChina?item.marketCapCny:item.marketCapUsd,currency=isChina?"CNY":"USD";
   const available=Number.isFinite(value)&&value>0,text=item.marketCapStatus==="not_applicable"?"不适用":available?`${item.marketCapCurrency!==currency?"≈ ":""}${formatMarketCap(value)} ${currency}`:"暂无";
   const original=available&&item.marketCapCurrency!==currency?`原始市值 ${formatMarketCap(item.marketCap)} ${item.marketCapCurrency}`:"";
