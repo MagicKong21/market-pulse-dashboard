@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { marketClosedToday } from "../market-calendar.mjs";
 
@@ -15,4 +16,9 @@ test("中日韩市场周末均标注本日休市，其他市场不误标",()=>{
   assert.equal(marketClosedToday("TSE",saturday),"本日休市");
   assert.equal(marketClosedToday("KRX",saturday),"本日休市");
   assert.equal(marketClosedToday("CRYPTO",saturday),null);
+});
+
+test("在线版构建会携带交易日历模块", async()=>{
+  const buildScript=await readFile(new URL("../scripts/build-sites.mjs",import.meta.url),"utf8");
+  assert.match(buildScript,/market-calendar\.mjs/);
 });

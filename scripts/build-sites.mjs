@@ -81,6 +81,7 @@ await mkdir(join(dist, "server"), { recursive: true });
 await cp(join(root, "public"), join(dist, "public"), { recursive: true });
 await cp(join(root, "public"), dist, { recursive: true });
 await cp(join(root, "market.mjs"), join(dist, "server", "market.mjs"));
+await cp(join(root, "market-calendar.mjs"), join(dist, "server", "market-calendar.mjs"));
 await writeFile(join(dist, "server", "index.js"), source);
 
 const hostingPath = join(root, ".openai", "hosting.json");
