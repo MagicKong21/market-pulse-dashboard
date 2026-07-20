@@ -5,6 +5,7 @@
 .card-market-cap { flex:0 0 auto; display:grid; justify-items:end; gap:3px; max-width:48%; color:var(--muted); font:500 8px/1.1 ui-monospace,SFMono-Regular,monospace; }
 .card-market-cap strong { color:#aab7b4; font-size:9px; font-weight:650; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100%; }
 .provisional-point { color:var(--amber); font-weight:700; letter-spacing:.02em; }
+.market-closed { color:var(--amber); }
 .synthetic-point { color:var(--lime); font-weight:700; letter-spacing:.02em; cursor:help; }
 
 @media (max-width: 760px) {

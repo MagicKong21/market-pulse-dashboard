@@ -3,6 +3,7 @@ import { readFile, mkdir, writeFile } from "node:fs/promises";
 import { dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { INSTRUMENTS, PERIODS, isPeriod, mergeLatestQuote, mergeProvisionalIntraday, mergeSyntheticDxy, normalizeCoinbaseBitcoinCandles, normalizeEastmoneyA50Daily, normalizeEastmoneyA50Intraday, normalizeEastmoneyAuDaily, normalizeEastmoneyAuIntraday, normalizeEastmoneyBreadthRow, normalizeEastmoneyGlobal, normalizeEastmoneyTwii, normalizeKrakenBitcoinOhlc, normalizeSinaA50Daily, normalizeSinaA50Minute, normalizeSinaAuHistory, normalizeSinaGlobalFutureLatest, normalizeSinaUsKline, normalizeSymbolInput, normalizeTencentKline, normalizeTencentMinute, normalizeThsIndustryLine, normalizeThsIndustryMinute, normalizeTwseIndexHistory, normalizeYahooChart, normalizeYahooQuotes, resolveInstruments, sortByMarketCapUsd } from "./market.mjs";
+import { marketClosedToday } from "./market-calendar.mjs";
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const PUBLIC = join(ROOT, "public");
@@ -478,9 +479,10 @@ async function dashboard(periodKey, force = false, instruments = INSTRUMENTS, pa
   const sorted = sortByCap?sortByMarketCapUsd(instruments,marketCaps):instruments.map(item=>({item,cap:marketCaps.get(item.symbol)}));
   const selected = sorted.slice(page * pageSize, (page + 1) * pageSize);
   const results = await mapConcurrent(selected, 4, entry => fetchInstrument(entry.item, periodKey, force, maxAge));
+  const marketClosedFor = (entry) => periodKey === "1d" ? marketClosedToday(entry.item.market) : null;
   const instrumentResults = results.map((result, index) => result.ok
-    ? { status: "ok", ...result.data, ...selected[index].cap, ...(marketBreadth.get(selected[index].item.symbol)||{}) }
-    : { status: "error", ...selected[index].item, ...selected[index].cap, ...(marketBreadth.get(selected[index].item.symbol)||{}), error: result.error });
+    ? { status: "ok", ...result.data, ...selected[index].cap, ...(marketBreadth.get(selected[index].item.symbol)||{}), marketClosed:marketClosedFor(selected[index]) }
+    : { status: "error", ...selected[index].item, ...selected[index].cap, ...(marketBreadth.get(selected[index].item.symbol)||{}), marketClosed:marketClosedFor(selected[index]), error: result.error });
   return {
     period: periodKey,
     periodLabel: PERIODS[periodKey].label,

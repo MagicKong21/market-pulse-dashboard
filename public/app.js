@@ -184,7 +184,10 @@ function marketCapBadge(item){
   return`<span class="card-market-cap"${title?` title="${esc(title)}"`:""}><small>总市值</small><strong>${text}</strong></span>`;
 }
 function card(item){
-  if(item.status!=="ok")return`<article class="card error"><div class="card-head"><div><div class="name">${esc(item.name)}</div><div class="ticker">${tickerLine(item)}</div></div>${marketCapBadge(item)}</div><p class="error-message">暂时无法取得有效行情<br>${esc(item.error||"未知错误")}</p><div class="range"><span>未使用虚构或过期数据</span><span>—</span></div></article>`;
+  if(item.status!=="ok"){
+    const closed=Boolean(item.marketClosed),message=closed?"本日休市，未请求当日行情":`暂时无法取得有效行情<br>${esc(item.error||"未知错误")}`;
+    return`<article class="card error"><div class="card-head"><div><div class="name">${esc(item.name)}</div><div class="ticker">${tickerLine(item)}</div></div>${marketCapBadge(item)}</div><p class="error-message">${message}</p><div class="range"><span>未使用虚构或过期数据</span>${closed?`<span class="provisional-point market-closed">${esc(item.marketClosed)}</span>`:""}<span>—</span></div></article>`;
+  }
   const direction=Math.sign(item.change),tone=direction>0?"up":direction<0?"down":"flat",prefix=direction>0?"+":"",intraday=["1d","5d"].includes(period),timeZone=item.exchangeTimezone||"UTC";
   const providedSession=period==="1d"?item.session:null,latestSession=marketSessionForTime(item.asOf,timeZone,item.market,providedSession),firstSession=marketSessionForTime(item.points[0][0],timeZone,item.market,period==="1d"?item.session:null);
   const now=Date.now(),withinCurrentSession=latestSession&&now>=latestSession.start&&now<latestSession.end&&item.asOf>=latestSession.start&&item.asOf<latestSession.end;
@@ -193,7 +196,7 @@ function card(item){
   // 一个图中并不存在的理论夜盘开盘时间。
   const rangeStart=intraday?item.points[0][0]:(firstSession?.end||item.points[0][0]);
   const rangeEnd=intraday?(latestSession?.end||item.asOf):(inProgress?item.asOf:(latestSession?.end||item.asOf));
-  const progressLabel=inProgress?`<span class="provisional-point">截至 ${rangeTimeLabel(item.asOf).slice(-5)}</span>`:"";
+  const progressLabel=item.marketClosed?`<span class="provisional-point market-closed">${esc(item.marketClosed)}</span>`:inProgress?`<span class="provisional-point">截至 ${rangeTimeLabel(item.asOf).slice(-5)}</span>`:"";
   const chartSession=latestSession||item.session;
   return`<article class="card">${item.cache==="stale"?`<span class="stale" title="${esc(item.warning)}">缓存</span>`:""}<div class="card-head"><div><div class="name">${esc(item.name)}</div><div class="ticker">${tickerLine(item)}</div></div>${marketCapBadge(item)}</div><div class="quote"><div class="price">${formatPrice(item.price,item.currency)}</div><div class="change ${tone}">${prefix}${item.changePercent.toFixed(2)}%</div></div><div class="chart">${makeChart(item.points,direction,chartSession,item.previousClose,period,timeZone,item.market,inProgress)}</div><div class="range"><span>${rangeTimeLabel(rangeStart)}</span>${progressLabel}<span>${rangeTimeLabel(rangeEnd)}</span></div></article>`;
 }
