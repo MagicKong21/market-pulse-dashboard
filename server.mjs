@@ -18,6 +18,7 @@ let diskCache = {};
 try { diskCache = JSON.parse(await readFile(CACHE_FILE, "utf8")); } catch { diskCache = {}; }
 
 const jsonHeaders = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" };
+const INSTRUMENT_CONCURRENCY = 6;
 
 export function autoRefreshMaxAge(periodKey,value,enabled=true){
   if(!enabled||!Number.isFinite(Number(value)))return PERIODS[periodKey].ttl;
@@ -474,11 +475,23 @@ async function mapConcurrent(items, limit, worker) {
 async function dashboard(periodKey, force = false, instruments = INSTRUMENTS, page = 0, pageSize = instruments.length, sortByCap = true, maxAge = PERIODS[periodKey].ttl) {
   const startedAt = Date.now();
   // “重点”按关注顺序展示，但个股仍需返回市值，供右上角换算成人民币显示。
-  const marketCaps = await fetchMarketCaps(instruments,force);
-  const marketBreadth = await fetchMarketBreadth(instruments).catch(()=>new Map());
-  const sorted = sortByCap?sortByMarketCapUsd(instruments,marketCaps):instruments.map(item=>({item,cap:marketCaps.get(item.symbol)}));
-  const selected = sorted.slice(page * pageSize, (page + 1) * pageSize);
-  const results = await mapConcurrent(selected, 4, entry => fetchInstrument(entry.item, periodKey, force, maxAge));
+  // 首屏的市值、涨跌家数和 K 线互不依赖；并行请求可避免市值接口阻塞全部行情。
+  const marketCapsPromise = fetchMarketCaps(instruments,force);
+  const marketBreadthPromise = fetchMarketBreadth(instruments).catch(()=>new Map());
+  let marketCaps;
+  let selected;
+  if(sortByCap){
+    marketCaps = await marketCapsPromise;
+    selected = sortByMarketCapUsd(instruments,marketCaps).slice(page * pageSize, (page + 1) * pageSize);
+  }else{
+    selected = instruments.slice(page * pageSize, (page + 1) * pageSize).map(item=>({item,cap:undefined}));
+  }
+  const [resolvedMarketCaps, marketBreadth, results] = await Promise.all([
+    marketCaps || marketCapsPromise,
+    marketBreadthPromise,
+    mapConcurrent(selected, INSTRUMENT_CONCURRENCY, entry => fetchInstrument(entry.item, periodKey, force, maxAge))
+  ]);
+  if(!sortByCap) selected = selected.map(entry=>({ ...entry, cap:resolvedMarketCaps.get(entry.item.symbol) }));
   const marketClosedFor = (entry) => periodKey === "1d" ? marketClosedToday(entry.item.market) : null;
   const instrumentResults = results.map((result, index) => result.ok
     ? { status: "ok", ...result.data, ...selected[index].cap, ...(marketBreadth.get(selected[index].item.symbol)||{}), marketClosed:marketClosedFor(selected[index]) }

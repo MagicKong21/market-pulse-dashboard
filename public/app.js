@@ -27,6 +27,7 @@ const DEFAULT_FOCUS_STOCKS = [
 ].map(([symbol,name,market,assetType])=>({symbol,name,market,assetType}));
 const STORAGE_KEY=IS_HOSTED_SITE?"market-pulse-settings-hosted-v2":"market-pulse-settings-v3",LEGACY_STORAGE_KEY="market-pulse-settings-v2",SETTINGS_VERSION=10,PERIOD_KEYS=["1d","5d","1mo","6mo","1y","3y"];
 const UPDATE_CHECK_KEY="market-pulse-update-check-v1",UPDATE_DISMISSED_KEY="market-pulse-update-dismissed-v1",UPDATE_INTERVAL=2*24*60*60*1000;
+const RENDER_CACHE_PREFIX="market-pulse-render-cache-v1",RENDER_CACHE_MAX_AGE=6*60*60*1000;
 const $=selector=>document.querySelector(selector),grid=$("#grid"),status=$("#status"),timestamp=$("#timestamp"),refresh=$("#refresh");
 const buttons=[...document.querySelectorAll("[data-period]")],universeButtons=[...document.querySelectorAll("[data-universe]")],dialog=$("#settingsDialog"),preview=$("#layoutPreview"),formError=$("#formError"),slotEditor=$("#slotEditor");
 let period="1mo",requestId=0,displayOrder=[],settingsSlots=[],pendingSlot=-1,editingSlot=-1,currentUniverse="global",preferences,autoRefreshTimer=null,autoRefreshCountdownTimer=null,autoRefreshDueAt=0,latestUpdateMeta=null;
@@ -236,8 +237,21 @@ async function fillMissingIndexBreadth(instruments){
     });
   }catch{return instruments;}
 }
+function renderCacheKey(){return `${RENDER_CACHE_PREFIX}:${currentUniverse}:${period}:${preferences.stocks.map(item=>item.symbol).join(",")}`;}
+function restoreRenderCache(){
+  try{
+    const cached=JSON.parse(localStorage.getItem(renderCacheKey()));
+    if(!cached?.html||!Number.isFinite(cached.savedAt)||Date.now()-cached.savedAt>RENDER_CACHE_MAX_AGE)return false;
+    grid.innerHTML=cached.html;
+    status.innerHTML=`<i class="pulse"></i> 正在更新行情（先显示 ${new Date(cached.savedAt).toLocaleTimeString("zh-CN",{hour:"2-digit",minute:"2-digit"})} 的本机缓存）…`;
+    return true;
+  }catch{return false;}
+}
+function saveRenderCache(){
+  try{localStorage.setItem(renderCacheKey(),JSON.stringify({savedAt:Date.now(),html:grid.innerHTML}));}catch{/* 存储空间不足时直接跳过，不影响行情 */}
+}
 async function load({skeleton=true,force=false}={}){
-  const id=++requestId;refresh.disabled=true;if(skeleton)showSkeletons(preferences.stocks.length);status.innerHTML=`<i class="pulse"></i> 正在更新 ${buttons.find(button=>button.dataset.period===period)?.textContent}行情…`;
+  const id=++requestId;refresh.disabled=true;const restored=skeleton&&restoreRenderCache();if(skeleton&&!restored)showSkeletons(preferences.stocks.length);if(!restored)status.innerHTML=`<i class="pulse"></i> 正在更新 ${buttons.find(button=>button.dataset.period===period)?.textContent}行情…`;
   try{
     const params=new URLSearchParams({period,symbols:preferences.stocks.map(item=>item.symbol).join(","),page:"0",pageSize:String(capacity())});if(["market","focus"].includes(currentUniverse))params.set("sort","none");if(force)params.set("force","1");else if(dashboardState.autoRefreshMs)params.set("refreshMs",String(dashboardState.autoRefreshMs));
     const response=await fetch(`/api/market?${params}`,{cache:"no-store"});if(!response.ok){const body=await response.json().catch(()=>({}));throw new Error(body.error||`服务器返回 ${response.status}`);}
@@ -247,7 +261,7 @@ async function load({skeleton=true,force=false}={}){
     instruments=await fillMissingAu9999Intraday(instruments);
     instruments=await fillMissingA50Intraday(instruments);
     if(["market","focus"].includes(currentUniverse)){const order=new Map(preferences.stocks.map((item,index)=>[item.symbol,index]));instruments=instruments.sort((a,b)=>order.get(a.symbol)-order.get(b.symbol));}
-    displayOrder=instruments.map(item=>item.symbol);grid.innerHTML=instruments.map(card).join("");
+    displayOrder=instruments.map(item=>item.symbol);grid.innerHTML=instruments.map(card).join("");saveRenderCache();
     const good=instruments.filter(item=>item.status==="ok").length,stale=instruments.filter(item=>item.cache==="stale").length;
     status.innerHTML=`<i class="pulse"></i> ${good}/${instruments.length} 个标的已校验 · 共 ${preferences.stocks.length} 只${stale?` · ${stale} 个使用缓存`:""}`;latestUpdateMeta={generatedAt:payload.generatedAt,durationMs:payload.durationMs};
   }catch(error){if(id!==requestId)return;status.textContent=`更新失败：${error.message}`;grid.innerHTML=`<article class="card error"><p class="error-message">无法加载行情，请检查股票代码或本地服务后重试。</p></article>`;}finally{if(id===requestId){refresh.disabled=false;scheduleAutoRefresh();}}
